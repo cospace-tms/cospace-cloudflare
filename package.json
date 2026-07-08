@@ -1,0 +1,31 @@
+{
+  "name": "cospace-cloudflare-root",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "node build.js",
+    "preview": "vite preview",
+    "pages:dev": "wrangler pages dev ./dist --ip 127.0.0.1 --binding ENVIRONMENT=development --persist-to=.wrangler/state",
+    "deploy": "wrangler deploy",
+    "sync-frontend": "git submodule update --remote && git add . && git commit -m \"chore: update frontend submodule and root worker.ts path\" && git push"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "lucide-react": "^0.395.0",
+    "marked": "^12.0.0",
+    "@aws-sdk/client-s3": "^3.1078.0",
+    "@aws-sdk/s3-request-presigner": "^3.1078.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.2.2",
+    "vite": "^5.3.1",
+    "wrangler": "^4.106.0",
+    "@cloudflare/workers-types": "^4.20240529.0"
+  }
+}

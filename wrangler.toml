@@ -1,0 +1,41 @@
+#:schema node_modules/wrangler/config-schema.json
+name = "cospace"
+compatibility_date = "2026-07-02"
+main = "worker.ts"
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+
+
+# ------------------------------------------------------------------------------
+# 1. Cloudflare D1 (SQL Database) Binding
+# ------------------------------------------------------------------------------
+[[d1_databases]]
+binding = "DB"
+database_name = "cospace_db"
+migrations_dir = "./migrations"
+
+# ------------------------------------------------------------------------------
+# 2. Cloudflare R2 (Object Storage) Binding
+# ------------------------------------------------------------------------------
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "cospace-storage"
+
+# ------------------------------------------------------------------------------
+# 3. 環境変数定義
+# ------------------------------------------------------------------------------
+[vars]
+ENVIRONMENT = "production"
+
+# ------------------------------------------------------------------------------
+# 4. レートリミット (Workers Rate Limiting)
+# ------------------------------------------------------------------------------
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1001"
+
+[ratelimits.simple]
+limit = 20
+period = 60
