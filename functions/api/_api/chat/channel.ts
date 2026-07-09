@@ -40,17 +40,21 @@ export async function handleGetChannels(request: Request, env: Env, workspaceId:
     if (userRole === 'guest') {
       // ゲストの場合は、自分が明示的にメンバーになっているチャンネルのみ（DMは除外）
       const queryResult = await env.DB.prepare(`
-        SELECT c.* FROM channels c
+        SELECT c.*, CASE WHEN cs.channel_id IS NOT NULL THEN 1 ELSE 0 END as is_starred
+        FROM channels c
+        LEFT JOIN channel_stars cs ON c.id = cs.channel_id AND cs.user_id = ?
         WHERE c.workspace_id = ?
           AND (c.type = 'channel' OR c.type IS NULL)
           AND EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
         ORDER BY c.created_at ASC
-      `).bind(workspaceId, userId).all<any>();
+      `).bind(userId, workspaceId, userId).all<any>();
       results = queryResult.results;
     } else {
       // 閲覧権限があるチャンネルのみを取得するSQL
       const queryResult = await env.DB.prepare(`
-        SELECT c.* FROM channels c
+        SELECT c.*, CASE WHEN cs.channel_id IS NOT NULL THEN 1 ELSE 0 END as is_starred
+        FROM channels c
+        LEFT JOIN channel_stars cs ON c.id = cs.channel_id AND cs.user_id = ?
         WHERE c.workspace_id = ?
           AND (
             -- 1. デフォルトルーム: general パブリックチャンネル
@@ -60,7 +64,7 @@ export async function handleGetChannels(request: Request, env: Env, workspaceId:
             EXISTS (SELECT 1 FROM channel_members cm WHERE cm.channel_id = c.id AND cm.user_id = ?)
           )
         ORDER BY c.created_at ASC
-      `).bind(workspaceId, userId).all<any>();
+      `).bind(userId, workspaceId, userId).all<any>();
       results = queryResult.results;
     }
 
@@ -94,6 +98,7 @@ export async function handleGetChannels(request: Request, env: Env, workspaceId:
         groupId: row.group_id || null,
         updatedAt: row.updated_at || null,
         unreadCount,
+        isStarred: row.is_starred === 1,
       };
     });
 

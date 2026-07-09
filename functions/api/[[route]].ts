@@ -78,6 +78,26 @@ import {
   handleTestSmtpSettings
 } from "./_api/auth-recovery";
 import { handleGetActivities } from "./_api/activities";
+import { handleSearchWorkspace } from "./_api/chat/search";
+import {
+  handleCreateCustomEmoji,
+  handleGetCustomEmojis,
+  handleDeleteCustomEmoji,
+  handleGetCustomEmojiRaw
+} from "./_api/chat/emoji";
+import {
+  handleGetDocumentLock,
+  handleAcquireDocumentLock,
+  handleHeartbeatDocumentLock,
+  handleReleaseDocumentLock
+} from "./_api/document_locks";
+import {
+  handlePinMessage,
+  handleUnpinMessage,
+  handleGetPinnedMessages,
+  handleStarChannel,
+  handleUnstarChannel
+} from "./_api/pins_and_stars";
 
 export interface Env {
   DB: D1Database;
@@ -235,12 +255,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   // JWT認証検証 (CORSプリフライトOPTIONSリクエストは認証不要)
   const jwtSecret = await getJwtSecret(env);
+  const isEmojiRawRoute = !!url.pathname.match(/^\/api\/workspaces\/([^\/]+)\/emojis\/raw\/([^\/]+)$/);
   const isPublicRoute = 
     url.pathname === "/api/auth/login" ||
     url.pathname === "/api/auth/refresh" ||
     url.pathname === "/api/auth/recovery" ||
     url.pathname === "/api/setup/status" ||
-    url.pathname === "/api/setup/register";
+    url.pathname === "/api/setup/register" ||
+    isEmojiRawRoute;
 
   let authenticatedUserId: string | null = null;
 
@@ -397,6 +419,39 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       if (method === "DELETE") {
         return await handleDeleteWorkspace(request, env, workspaceId);
       }
+    }
+
+    // 全文検索 API
+    const workspaceSearchMatch = url.pathname.match(/^\/api\/workspaces\/([^\/]+)\/search$/);
+    if (workspaceSearchMatch && method === "GET") {
+      const workspaceId = workspaceSearchMatch[1];
+      return await handleSearchWorkspace(request, env, workspaceId);
+    }
+
+    // カスタム絵文字 API
+    const workspaceEmojiRawMatch = url.pathname.match(/^\/api\/workspaces\/([^\/]+)\/emojis\/raw\/([^\/]+)$/);
+    if (workspaceEmojiRawMatch && method === "GET") {
+      const workspaceId = workspaceEmojiRawMatch[1];
+      const emojiIdWithExt = workspaceEmojiRawMatch[2];
+      return await handleGetCustomEmojiRaw(request, env, workspaceId, emojiIdWithExt);
+    }
+
+    const workspaceEmojisMatch = url.pathname.match(/^\/api\/workspaces\/([^\/]+)\/emojis$/);
+    if (workspaceEmojisMatch) {
+      const workspaceId = workspaceEmojisMatch[1];
+      if (method === "GET") {
+        return await handleGetCustomEmojis(request, env, workspaceId);
+      }
+      if (method === "POST") {
+        return await handleCreateCustomEmoji(request, env, workspaceId);
+      }
+    }
+
+    const workspaceEmojiDetailMatch = url.pathname.match(/^\/api\/workspaces\/([^\/]+)\/emojis\/([^\/]+)$/);
+    if (workspaceEmojiDetailMatch && method === "DELETE") {
+      const workspaceId = workspaceEmojiDetailMatch[1];
+      const emojiId = workspaceEmojiDetailMatch[2];
+      return await handleDeleteCustomEmoji(request, env, workspaceId, emojiId);
     }
 
     // 4-2. グループ関連 API
@@ -606,6 +661,59 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
     if (url.pathname === "/api/settings/smtp/test" && method === "POST") {
       return await handleTestSmtpSettings(request, env);
+    }
+
+    // 12. ドキュメントロック関連 API
+    const lockMatch = url.pathname.match(/^\/api\/document-locks\/([^\/]+)(?:\/([^\/]+))?$/);
+    if (lockMatch) {
+      const lockKey = decodeURIComponent(lockMatch[1]);
+      const action = lockMatch[2]; // undefined, "acquire", "heartbeat", "release"
+      
+      if (!action && method === "GET") {
+        return await handleGetDocumentLock(request, env, lockKey);
+      }
+      if (action === "acquire" && method === "POST") {
+        return await handleAcquireDocumentLock(request, env, lockKey);
+      }
+      if (action === "heartbeat" && method === "POST") {
+        return await handleHeartbeatDocumentLock(request, env, lockKey);
+      }
+      if (action === "release" && method === "POST") {
+        return await handleReleaseDocumentLock(request, env, lockKey);
+      }
+    }
+
+    // 13. ピン留め ＆ スター関連 API
+    const pinMatch = url.pathname.match(/^\/api\/messages\/([^\/]+)\/(pin|unpin)$/);
+    if (pinMatch) {
+      const messageId = pinMatch[1];
+      const action = pinMatch[2];
+      if (action === "pin" && method === "POST") {
+        return await handlePinMessage(request, env, messageId);
+      }
+      if (action === "unpin" && method === "POST") {
+        return await handleUnpinMessage(request, env, messageId);
+      }
+    }
+
+    const channelPinsMatch = url.pathname.match(/^\/api\/channels\/([^\/]+)\/pins$/);
+    if (channelPinsMatch) {
+      const channelId = channelPinsMatch[1];
+      if (method === "GET") {
+        return await handleGetPinnedMessages(request, env, channelId);
+      }
+    }
+
+    const starMatch = url.pathname.match(/^\/api\/channels\/([^\/]+)\/(star|unstar)$/);
+    if (starMatch) {
+      const channelId = starMatch[1];
+      const action = starMatch[2];
+      if (action === "star" && method === "POST") {
+        return await handleStarChannel(request, env, channelId);
+      }
+      if (action === "unstar" && method === "POST") {
+        return await handleUnstarChannel(request, env, channelId);
+      }
     }
 
     return new Response(JSON.stringify({ error: "API Route Not Found" }), {

@@ -194,6 +194,7 @@ export async function handleGetMessages(request: Request, env: Env, channelId: s
         pu.display_name as parentUserDisplayName,
         (SELECT COUNT(*) FROM messages r WHERE r.parent_id = m.id) as replyCount,
         (SELECT MAX(created_at) FROM messages r WHERE r.parent_id = m.id) as lastReplyAt,
+        CASE WHEN EXISTS(SELECT 1 FROM message_pins mp WHERE mp.message_id = m.id) THEN 1 ELSE 0 END as isPinned,
         (
           SELECT json_group_array(
             json_object(
@@ -248,6 +249,7 @@ export async function handleGetMessages(request: Request, env: Env, channelId: s
       replyCount: row.replyCount || 0,
       lastReplyAt: row.lastReplyAt || null,
       reactions: row.reactionsJson ? JSON.parse(row.reactionsJson) : [],
+      isPinned: row.isPinned === 1,
     }));
 
     return new Response(JSON.stringify({ success: true, data }), {
@@ -377,6 +379,7 @@ export async function handleGetMessagesGeneral(request: Request, env: Env): Prom
         pu.display_name as parentUserDisplayName,
         (SELECT COUNT(*) FROM messages r WHERE r.parent_id = m.id) as replyCount,
         (SELECT MAX(created_at) FROM messages r WHERE r.parent_id = m.id) as lastReplyAt,
+        (CASE WHEN pin.message_id IS NOT NULL THEN 1 ELSE 0 END) as isPinned,
         (
           SELECT json_group_array(
             json_object(
@@ -394,6 +397,7 @@ export async function handleGetMessagesGeneral(request: Request, env: Env): Prom
       LEFT JOIN users u ON m.user_id = u.id
       LEFT JOIN messages pm ON m.parent_id = pm.id
       LEFT JOIN users pu ON pm.user_id = pu.id
+      LEFT JOIN message_pins pin ON m.id = pin.message_id
       WHERE m.channel_id = ?
     `;
 
@@ -436,6 +440,7 @@ export async function handleGetMessagesGeneral(request: Request, env: Env): Prom
       },
       replyCount: row.replyCount || 0,
       lastReplyAt: row.lastReplyAt || null,
+      isPinned: !!row.isPinned,
       reactions: row.reactionsJson ? JSON.parse(row.reactionsJson) : [],
     }));
 

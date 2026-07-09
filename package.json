@@ -9,6 +9,8 @@
     "preview": "vite preview",
     "pages:dev": "wrangler pages dev ./dist --ip 127.0.0.1 --binding ENVIRONMENT=development --persist-to=.wrangler/state",
     "deploy": "wrangler deploy",
+    "db:migrate": "wrangler d1 migrations apply cospace_db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply cospace_db --remote",
     "sync-frontend": "git submodule update --remote && git add . && git commit -m \"chore: update frontend submodule and root worker.ts path\" && git push"
   },
   "dependencies": {
