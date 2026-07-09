@@ -11,7 +11,8 @@
     "deploy": "wrangler deploy",
     "db:migrate": "wrangler d1 migrations apply cospace_db --local",
     "db:migrate:remote": "wrangler d1 migrations apply cospace_db --remote",
-    "sync-frontend": "git submodule update --remote && git add . && git commit -m \"chore: update frontend submodule and root worker.ts path\" && git push"
+    "sync-frontend": "git submodule update --remote && git add . && git commit -m \"chore: update frontend submodule and root worker.ts path\" && git push",
+    "update-frontend": "git submodule update --init --recursive"
   },
   "dependencies": {
     "react": "^18.3.1",
