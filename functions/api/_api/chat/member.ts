@@ -168,23 +168,23 @@ export async function handleAddWorkspaceMember(request: Request, env: Env, works
         const workspace = await env.DB.prepare(
           "SELECT name FROM workspaces WHERE id = ?"
         ).bind(workspaceId).first<{ name: string }>();
-        const workspaceName = workspace?.name || "Cospace";
+        const workspaceName = workspace?.name || "Cohive";
 
         const url = new URL(request.url);
         const loginUrl = `${url.protocol}//${url.host}`;
 
         await sendMail(smtpSettings, {
           to: email,
-          subject: `[Cospace] ${workspaceName} ワークスペースへの招待`,
+          subject: `[Cohive] ${workspaceName} ワークスペースへの招待`,
           text: `こんにちは。\r\n\r\n${workspaceName} ワークスペースへの招待が届きました。\r\n以下のリンクからログインしてください。\r\n\r\nログインURL: ${loginUrl}\r\n\r\n※初めてのログインの際は、管理者から発行された初期パスワードをご使用ください。ログイン後、右上の設定よりパスワードの変更をお願いいたします。`,
           html: `
             <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eaeaea; border-radius: 5px; max-width: 600px; margin: 0 auto;">
-              <h2 style="color: #4f46e5;">Cospace 招待のお知らせ</h2>
+              <h2 style="color: #4f46e5;">Cohive 招待のお知らせ</h2>
               <p>こんにちは。</p>
               <p><strong>${workspaceName}</strong> ワークスペースへの招待が届きました。</p>
               <div style="margin: 25px 0;">
                 <a href="${loginUrl}" style="background: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">
-                   Cospace にログインする
+                   Cohive にログインする
                 </a>
               </div>
               <p style="color: #6b7280; font-size: 13px; line-height: 1.5; border-top: 1px solid #eee; padding-top: 15px;">

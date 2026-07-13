@@ -1,14 +1,14 @@
-# 💬 cospace
+# 💬 cohive
 
 A zero-cost, fully self-hosted, and ultra-lightweight business collaboration platform.
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cospace-tms/cospace-cloudflare)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cohive-tms/cohive-cloudflare)
 
 ---
 
 ## 🌟 Overview
 
-**cospace** is an ultra-lightweight, fully independent (self-hosted) business communication and collaboration application designed to break you free from vendor lock-in, soaring monthly fees, and data limits of proprietary platforms.
+**cohive** is an ultra-lightweight, fully independent (self-hosted) business communication and collaboration application designed to break you free from vendor lock-in, soaring monthly fees, and data limits of proprietary platforms.
 
 By leveraging Cloudflare’s powerful serverless ecosystem (Pages, Workers, D1, R2), you can deploy a secure, private collaboration environment to your own infrastructure with a single click.
 
@@ -40,7 +40,7 @@ Before you begin, ensure you have:
 ### 1. Click the Deploy Button
 Click the button below to start the deployment process:
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cospace-tms/cospace-cloudflare)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cohive-tms/cohive-cloudflare)
 
 ### 2. Authorize & Deploy on Cloudflare
 1. Log in to (or sign up for) your Cloudflare dashboard and authorize GitHub access.
@@ -65,8 +65,8 @@ To unlock full capabilities (automated workspace invitation emails, offline noti
 When you click deploy, Cloudflare provisions and configures the following resources automatically in your account:
 
 1. **Pages Project**: Hosts the frontend assets and backend serverless API (Functions).
-2. **D1 Database (SQL)**: Automatically creates a database named `cospace_db`.
-3. **R2 Bucket (Object Storage)**: Automatically creates a storage bucket named `cospace-storage` for attachments/media.
+2. **D1 Database (SQL)**: Automatically creates a database named `cohive_db`.
+3. **R2 Bucket (Object Storage)**: Automatically creates a storage bucket named `cohive-storage` for attachments/media.
 4. **Bindings**: Automatically connects the D1 Database and R2 Bucket to your Pages Functions.
 5. **Database Initialization**: On your first visit to the deployment URL, the application code automatically executes schema creation (no manual SQL execution needed).
 
@@ -85,22 +85,22 @@ Configure custom WAF rules to protect your application from malicious bots and u
 ### 2. Cloudflare Zero Trust (Access)
 Add an extra layer of protection by placing Cloudflare Access in front of your deployment:
 * Go to Cloudflare Dashboard > **Zero Trust** > **Access** > **Applications**.
-* Create a self-hosted application for your cospace domain.
+* Create a self-hosted application for your cohive domain.
 * Set up a policy requiring identity verification (like Email One-Time Pin or Google Workspace OAuth) before anyone can access the site. This fully protects your application from exposure even if there are unpatched software vulnerabilities.
 
 ---
 
-# 💬 cospace (日本語)
+# 💬 cohive (日本語)
 
 「維持費0円から始められる、完全独立（セルフホスト）型の超軽量ビジネスコラボレーションプラットフォーム」
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cospace-tms/cospace-cloudflare)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cohive-tms/cohive-cloudflare)
 
 ---
 
 ## 🌟 プロジェクト概要
 
-**cospace** は、SlackやTeamsといった既存チャットツールのベンダーロックイン（高額な月額費用、メッセージ保存制限、データ管理権の喪失）からあなたを解放するために開発された、**完全独立（セルフホスト）型**の超軽量コラボレーションアプリです。
+**cohive** は、SlackやTeamsといった既存チャットツールのベンダーロックイン（高額な月額費用、メッセージ保存制限、データ管理権の喪失）からあなたを解放するために開発された、**完全独立（セルフホスト）型**の超軽量コラボレーションアプリです。
 
 Cloudflareの強力なサーバーレスエコシステム（Pages, Workers, D1, R2）をフル活用することで、**ボタン1つであなた専用のセキュアな環境を構築**できます。
 
@@ -132,7 +132,7 @@ Cloudflareの強力なサーバーレスエコシステム（Pages, Workers, D1,
 ### 1. デプロイボタンをクリックする
 以下の「Deploy to Cloudflare Pages」ボタンをクリックします。
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cospace-tms/cospace-cloudflare)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cohive-tms/cohive-cloudflare)
 
 ### 2. 画面の指示に従いデプロイを完了する
 1. Cloudflare アカウントへログイン（または新規登録）し、GitHub アカウントとの連携を承認します。
@@ -159,9 +159,9 @@ Cloudflareの強力なサーバーレスエコシステム（Pages, Workers, D1,
 1. **Pages プロジェクトの作成**:
    * アプリケーションのフロントエンド（静的ファイル）およびバックエンド API（Functions）をホストするための場所が作成されます。
 2. **D1 データベース（SQL データベース）の作成**:
-   * アカウント内に `cospace_db` という名前の軽量 SQL データベースが自動で作成されます。
+   * アカウント内に `cohive_db` という名前の軽量 SQL データベースが自動で作成されます。
 3. **R2 バケット（オブジェクトストレージ）の作成**:
-   * アカウント内に `cospace-storage` という名前のメディアファイル（画像や添付ファイル）保存用ストレージが自動で作成されます。
+   * アカウント内に `cohive-storage` という名前のメディアファイル（画像や添付ファイル）保存用ストレージが自動で作成されます。
 4. **リソースの接続（バインディング）**:
    * 作成された D1 データベースと R2 バケットが、Pages プロジェクトの「関数設定」に自動的に紐付けられ、プログラムからアクセスできるようになります。
 5. **テーブルの自動作成（初回アクセス時）**:
@@ -182,7 +182,7 @@ Cloudflareの強力なサーバーレスエコシステム（Pages, Workers, D1,
 ### 2. Cloudflare Zero Trust (Access) による二重防御
 ログイン画面の手前に Cloudflare Access を配置し、認証されたユーザーしかアプリにアクセスできないようにします。
 * Cloudflare ダッシュボードの **Zero Trust** > **Access** > **Applications** に進みます。
-* デプロイした cospace のドメイン宛のアプリケーションを作成します。
+* デプロイした cohive のドメイン宛のアプリケーションを作成します。
 * 特定のメールアドレスやドメイン（例: `@yourcompany.com`）のユーザーに対して、ワンタイムPINや外部IDプロバイダ認証を要求するポリシーを設定します。これにより、ネットワークレベルで関係者以外のアクセスを完全に排除できます。
 
 ---

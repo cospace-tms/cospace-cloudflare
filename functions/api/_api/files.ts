@@ -45,7 +45,7 @@ export async function handleGetPresignedUploadUrl(request: Request, env: Env): P
 
     const s3Client = getS3Client(env);
     const command = new PutObjectCommand({
-      Bucket: "cospace-storage",
+      Bucket: "cohive-storage",
       Key: objectKey,
       ContentType: contentType,
     });
@@ -183,7 +183,7 @@ export async function handleGetPresignedDownloadUrl(request: Request, env: Env):
 
     const s3Client = getS3Client(env);
     const command = new GetObjectCommand({
-      Bucket: "cospace-storage",
+      Bucket: "cohive-storage",
       Key: objectKey,
     });
 

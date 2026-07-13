@@ -426,12 +426,12 @@ export async function handleTestSmtpSettings(request: Request, env: Env): Promis
     // テストメールの送信実行
     await sendMail(settings, {
       to,
-      subject: "Cospace SMTP設定テスト",
-      text: "このメールは、Cospaceから送信されたSMTP設定のテストメールです。このメールが届いている場合、メールサーバーの設定は正常に機能しています。",
+      subject: "Cohive SMTP設定テスト",
+      text: "このメールは、Cohiveから送信されたSMTP設定のテストメールです。このメールが届いている場合、メールサーバーの設定は正常に機能しています。",
       html: `
         <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eaeaea; border-radius: 5px;">
-          <h2 style="color: #4f46e5;">Cospace SMTP設定テスト</h2>
-          <p>このメールは、Cospaceアプリから送信されたSMTP設定のテストメールです。</p>
+          <h2 style="color: #4f46e5;">Cohive SMTP設定テスト</h2>
+          <p>このメールは、Cohiveアプリから送信されたSMTP設定のテストメールです。</p>
           <p style="background: #f9fafb; padding: 10px; border-left: 4px solid #4f46e5;">
             <strong>ステータス:</strong> 正常に接続・送信されました。
           </p>

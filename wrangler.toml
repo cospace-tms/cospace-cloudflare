@@ -1,5 +1,5 @@
 #:schema node_modules/wrangler/config-schema.json
-name = "cospace"
+name = "cohive"
 compatibility_date = "2026-07-02"
 main = "worker.ts"
 
@@ -13,7 +13,7 @@ binding = "ASSETS"
 # ------------------------------------------------------------------------------
 [[d1_databases]]
 binding = "DB"
-database_name = "cospace_db"
+database_name = "cohive_db"
 migrations_dir = "./migrations"
 
 # ------------------------------------------------------------------------------
@@ -21,7 +21,7 @@ migrations_dir = "./migrations"
 # ------------------------------------------------------------------------------
 [[r2_buckets]]
 binding = "BUCKET"
-bucket_name = "cospace-storage"
+bucket_name = "cohive-storage"
 
 # ------------------------------------------------------------------------------
 # 3. 環境変数定義

@@ -1,5 +1,5 @@
 {
-  "name": "cospace-cloudflare-root",
+  "name": "cohive-cloudflare-root",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -9,26 +9,26 @@
     "preview": "vite preview",
     "pages:dev": "wrangler pages dev ./dist --ip 127.0.0.1 --binding ENVIRONMENT=development --persist-to=.wrangler/state",
     "deploy": "wrangler deploy",
-    "db:migrate": "wrangler d1 migrations apply cospace_db --local",
-    "db:migrate:remote": "wrangler d1 migrations apply cospace_db --remote",
+    "db:migrate": "wrangler d1 migrations apply cohive_db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply cohive_db --remote",
     "sync-frontend": "git submodule update --remote && git add . && git commit -m \"chore: update frontend submodule and root worker.ts path\" && git push",
     "update-frontend": "git submodule update --init --recursive"
   },
   "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "@aws-sdk/client-s3": "^3.1078.0",
+    "@aws-sdk/s3-request-presigner": "^3.1078.0",
     "lucide-react": "^0.395.0",
     "marked": "^12.0.0",
-    "@aws-sdk/client-s3": "^3.1078.0",
-    "@aws-sdk/s3-request-presigner": "^3.1078.0"
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240529.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "typescript": "^5.2.2",
-    "vite": "^5.3.1",
-    "wrangler": "^4.106.0",
-    "@cloudflare/workers-types": "^4.20240529.0"
+    "vite": "^8.1.4",
+    "wrangler": "^4.106.0"
   }
 }
