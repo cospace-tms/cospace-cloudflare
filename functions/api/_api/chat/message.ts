@@ -1,5 +1,6 @@
 import type { Env } from "../../[[route]]";
 import { linkFileToMessage } from "../files";
+import { sendWebPush } from "../../_utils/webpush";
 
 const headers = {
   "Content-Type": "application/json",
@@ -72,6 +73,76 @@ export async function canAccessChannel(env: Env, channelId: string, userId: stri
   }
 }
 
+// 複数のユーザー宛に Web Push を非同期で送信するヘルパー
+async function sendPushToUsers(
+  env: Env,
+  userIds: string[],
+  title: string,
+  bodyText: string,
+  linkUrl: string
+): Promise<void> {
+  try {
+    if (userIds.length === 0) return;
+
+    // 1. D1からVAPIDキーを取得
+    const vapidKey = await env.DB.prepare(
+      "SELECT public_key, private_key FROM push_vapid_key WHERE id = 1"
+    ).first<{ public_key: string; private_key: string }>();
+
+    if (!vapidKey) {
+      console.log("Web Push: VAPID keys not generated yet. Skipping push notification.");
+      return;
+    }
+
+    // 2. 送信対象ユーザーのサブスクリプションをすべて取得
+    const placeholders = userIds.map(() => "?").join(",");
+    const { results: subscriptions } = await env.DB.prepare(
+      `SELECT user_id as userId, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id IN (${placeholders})`
+    )
+      .bind(...userIds)
+      .all<{ userId: string; endpoint: string; p256dh: string; auth: string }>();
+
+    if (!subscriptions || subscriptions.length === 0) return;
+
+    // 3. 各サブスクリプションへプッシュ通知を送信
+    const payload = JSON.stringify({
+      title,
+      body: bodyText,
+      linkUrl
+    });
+
+    const pushPromises = subscriptions.map(async (sub) => {
+      try {
+        const subFormat = {
+          endpoint: sub.endpoint,
+          keys: {
+            p256dh: sub.p256dh,
+            auth: sub.auth
+          }
+        };
+        const res = await sendWebPush(subFormat, payload, {
+          publicKey: vapidKey.public_key,
+          privateKey: vapidKey.private_key
+        });
+
+        // 購読切れ（410 Gone / 404 Not Found）の場合はDBから削除する
+        if (res.status === 410 || res.status === 404) {
+          console.log(`Web Push: Subscription expired (${res.status}). Removing from DB.`);
+          await env.DB.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?")
+            .bind(sub.endpoint)
+            .run();
+        }
+      } catch (err) {
+        console.error(`Failed to send web push to user ${sub.userId}:`, err);
+      }
+    });
+
+    await Promise.all(pushPromises);
+  } catch (err) {
+    console.error("Failed in sendPushToUsers:", err);
+  }
+}
+
 // メンション/DMによる通知レコードを作成するヘルパー
 async function createMessageNotifications(
   env: Env,
@@ -113,6 +184,11 @@ async function createMessageNotifications(
 
       if (batch.length > 0) {
         await env.DB.batch(batch);
+        // Web Push を送信
+        const userIds = members.map(m => m.userId);
+        const title = `${senderName}さんからのダイレクトメッセージ`;
+        const linkUrl = `/channels/${channelId}?msg=${messageId}`;
+        await sendPushToUsers(env, userIds, title, content.substring(0, 100), linkUrl);
       }
       return;
     }
@@ -148,6 +224,11 @@ async function createMessageNotifications(
 
     if (batch.length > 0) {
       await env.DB.batch(batch);
+      // Web Push を送信
+      const userIds = Array.from(targetUserIds);
+      const title = `#${channel.name} でメンションされました`;
+      const linkUrl = `/channels/${channelId}?msg=${messageId}`;
+      await sendPushToUsers(env, userIds, title, content.substring(0, 100), linkUrl);
     }
   } catch (err) {
     console.error("Failed to create message notifications:", err);

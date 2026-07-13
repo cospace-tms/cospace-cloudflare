@@ -98,6 +98,7 @@ import {
   handleStarChannel,
   handleUnstarChannel
 } from "./_api/pins_and_stars";
+import { handleGetVapidPublicKey, handleSubscribe } from "./_api/push";
 
 export interface Env {
   DB: D1Database;
@@ -334,6 +335,44 @@ async function runMigrations(env: Env) {
       `).run();
     }
   }
+
+  // 9. push_vapid_key テーブルが存在するか確認、なければ作成
+  try {
+    await env.DB.prepare("SELECT 1 FROM push_vapid_key LIMIT 1").all();
+  } catch (tblErr: any) {
+    if (tblErr.message && (tblErr.message.includes("no such table") || tblErr.message.includes("does not exist"))) {
+      console.log("Database Migration: Creating push_vapid_key table...");
+      await env.DB.prepare(`
+        CREATE TABLE IF NOT EXISTS push_vapid_key (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          public_key TEXT NOT NULL,
+          private_key TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `).run();
+    }
+  }
+
+  // 10. push_subscriptions テーブルが存在するか確認、なければ作成
+  try {
+    await env.DB.prepare("SELECT 1 FROM push_subscriptions LIMIT 1").all();
+  } catch (tblErr: any) {
+    if (tblErr.message && (tblErr.message.includes("no such table") || tblErr.message.includes("does not exist"))) {
+      console.log("Database Migration: Creating push_subscriptions table...");
+      await env.DB.prepare(`
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          endpoint TEXT NOT NULL,
+          p256dh TEXT NOT NULL,
+          auth TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          UNIQUE(user_id, endpoint)
+        )
+      `).run();
+    }
+  }
 }
 
 async function ensureDatabaseInitialized(env: Env) {
@@ -532,6 +571,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
     if (url.pathname === "/api/users/me" && method === "PUT") {
       return await handleUpdateUser(request, env);
+    }
+    if (url.pathname === "/api/push/vapid-public-key" && method === "GET") {
+      return await handleGetVapidPublicKey(request, env);
+    }
+    if (url.pathname === "/api/push/subscribe" && method === "POST") {
+      return await handleSubscribe(request, env);
     }
 
     // 2. R2 ファイル添付関連 API (S3 署名付きURL)
