@@ -484,6 +484,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const url = new URL(request.url);
   const method = request.method;
 
+  // API以外のリクエスト（静的アセットやSPAルーティングなど）はアセットサーバーへ直接パススルーする
+  if (!url.pathname.startsWith("/api/")) {
+    return await context.next();
+  }
+
   const origin = request.headers.get("Origin") || "*";
 
   // CORSのプリフライト (OPTIONS) リクエストへの共通応答
