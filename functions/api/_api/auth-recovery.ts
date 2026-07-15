@@ -272,7 +272,7 @@ export async function handleSaveSmtpSettings(request: Request, env: Env): Promis
     }
 
     const body: any = await request.json();
-    const { host, port, user, pass, fromName } = body;
+    const { host, port, user, pass, fromName, mfaEnabled } = body;
 
     if (!host || !port || !user || !pass) {
       return new Response(JSON.stringify({ error: "Missing required SMTP parameters" }), {
@@ -287,6 +287,7 @@ export async function handleSaveSmtpSettings(request: Request, env: Env): Promis
       user,
       pass,
       fromName,
+      mfaEnabled: !!mfaEnabled,
     };
 
     await saveSmtpSettings(env, settings);
@@ -392,7 +393,7 @@ export async function handleTestSmtpSettings(request: Request, env: Env): Promis
     }
 
     const body: any = await request.json();
-    const { host, port, user, pass, fromName, to } = body;
+    const { host, port, user, pass, fromName, to, mfaEnabled } = body;
 
     if (!to) {
       return new Response(JSON.stringify({ error: "Recipient email (to) is required for testing" }), {
@@ -411,6 +412,7 @@ export async function handleTestSmtpSettings(request: Request, env: Env): Promis
         user,
         pass: pass === "********" ? (await getSmtpSettings(env))?.pass || "" : pass,
         fromName,
+        mfaEnabled: !!mfaEnabled,
       };
     } else {
       settings = await getSmtpSettings(env);

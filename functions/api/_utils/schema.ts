@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
     display_name TEXT,
     avatar_url TEXT,
     language TEXT DEFAULT 'ja',
+    last_active_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -212,4 +213,16 @@ CREATE INDEX IF NOT EXISTS idx_notifications_workspace_id ON notifications(works
 CREATE INDEX IF NOT EXISTS idx_files_workspace_id ON files(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_files_channel_id ON files(channel_id);
 CREATE INDEX IF NOT EXISTS idx_files_uploader_id ON files(uploader_id);
+
+-- 16. ログイン2段階認証用一時コードテーブル
+CREATE TABLE IF NOT EXISTS login_verification_codes (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    code TEXT NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_login_verification_codes_user_id ON login_verification_codes(user_id);
 `;

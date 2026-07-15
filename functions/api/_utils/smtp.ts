@@ -8,6 +8,7 @@ export interface SmtpSettings {
   user: string;
   pass: string;
   fromName?: string;
+  mfaEnabled?: boolean;
 }
 
 export interface MailOptions {
@@ -119,18 +120,39 @@ export async function deleteSmtpSettings(env: Env): Promise<void> {
 }
 
 // TCPソケットを使用したSMTP送信のコアロジック
-async function readLine(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<string> {
-  let line = "";
-  const decoder = new TextDecoder();
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    line += decoder.decode(value, { stream: true });
-    if (line.includes("\r\n")) {
-      break;
+class SmtpReader {
+  private reader: ReadableStreamDefaultReader<Uint8Array>;
+  private decoder = new TextDecoder();
+  private buffer = "";
+
+  constructor(reader: ReadableStreamDefaultReader<Uint8Array>) {
+    this.reader = reader;
+  }
+
+  async readLine(): Promise<string> {
+    while (true) {
+      const index = this.buffer.indexOf("\r\n");
+      if (index !== -1) {
+        const line = this.buffer.substring(0, index + 2);
+        this.buffer = this.buffer.substring(index + 2);
+        return line;
+      }
+      const { value, done } = await this.reader.read();
+      if (done) {
+        if (this.buffer.length > 0) {
+          const line = this.buffer;
+          this.buffer = "";
+          return line;
+        }
+        return "";
+      }
+      this.buffer += this.decoder.decode(value, { stream: true });
     }
   }
-  return line;
+
+  releaseLock() {
+    this.reader.releaseLock();
+  }
 }
 
 export async function sendMail(settings: SmtpSettings, options: MailOptions): Promise<void> {
@@ -145,7 +167,7 @@ export async function sendMail(settings: SmtpSettings, options: MailOptions): Pr
   });
 
   const writer = socket.writable.getWriter();
-  const reader = socket.readable.getReader();
+  const reader = new SmtpReader(socket.readable.getReader());
   const encoder = new TextEncoder();
 
   const sendCmd = async (cmd: string) => {
@@ -154,45 +176,45 @@ export async function sendMail(settings: SmtpSettings, options: MailOptions): Pr
 
   try {
     // 1. サーバーステータスライン待機
-    let resp = await readLine(reader);
+    let resp = await reader.readLine();
     if (!resp.startsWith("220")) throw new Error(`SMTP Connect Error: ${resp}`);
 
     // 2. EHLO
     await sendCmd("EHLO localhost");
-    resp = await readLine(reader);
-    while (resp[3] === "-") {
-      resp = await readLine(reader);
-    }
+    resp = await reader.readLine();
     if (!resp.startsWith("250")) throw new Error(`SMTP EHLO Error: ${resp}`);
+    while (resp.startsWith("250-") || (resp.length >= 4 && resp[3] === "-")) {
+      resp = await reader.readLine();
+    }
 
     // 3. AUTH LOGIN
     await sendCmd("AUTH LOGIN");
-    resp = await readLine(reader);
+    resp = await reader.readLine();
     if (!resp.startsWith("334")) throw new Error(`SMTP AUTH LOGIN Error: ${resp}`);
 
     // 4. ユーザー名送信 (Base64)
     await sendCmd(btoa(user));
-    resp = await readLine(reader);
+    resp = await reader.readLine();
     if (!resp.startsWith("334")) throw new Error(`SMTP AUTH Username Error: ${resp}`);
 
     // 5. パスワード送信 (Base64)
     await sendCmd(btoa(pass));
-    resp = await readLine(reader);
+    resp = await reader.readLine();
     if (!resp.startsWith("235")) throw new Error(`SMTP AUTH Password Error: ${resp}`);
 
     // 6. MAIL FROM
     await sendCmd(`MAIL FROM:<${fromEmail}>`);
-    resp = await readLine(reader);
+    resp = await reader.readLine();
     if (!resp.startsWith("250")) throw new Error(`SMTP MAIL FROM Error: ${resp}`);
 
     // 7. RCPT TO
     await sendCmd(`RCPT TO:<${options.to}>`);
-    resp = await readLine(reader);
+    resp = await reader.readLine();
     if (!resp.startsWith("250")) throw new Error(`SMTP RCPT TO Error: ${resp}`);
 
     // 8. DATA
     await sendCmd("DATA");
-    resp = await readLine(reader);
+    resp = await reader.readLine();
     if (!resp.startsWith("354")) throw new Error(`SMTP DATA Ready Error: ${resp}`);
 
     // 9. 本文構築・送信 (日本語文字化け対策に UTF-8 Base64 エンコードを採用)
@@ -201,7 +223,7 @@ export async function sendMail(settings: SmtpSettings, options: MailOptions): Pr
     // 日本語のSubject/本文を安全にBase64化する関数
     const safeBtoa = (str: string) => btoa(unescape(encodeURIComponent(str)));
 
-    const headers = [
+    const lines = [
       `From: ${fromName ? `"${fromName}" ` : ""}<${fromEmail}>`,
       `To: <${options.to}>`,
       `Subject: =?UTF-8?B?${safeBtoa(options.subject)}?=`,
@@ -216,23 +238,29 @@ export async function sendMail(settings: SmtpSettings, options: MailOptions): Pr
       "",
       safeBtoa(options.text),
       "",
-      options.html ? `--${boundary}` : "",
-      options.html ? `Content-Type: text/html; charset="UTF-8"` : "",
-      options.html ? `Content-Transfer-Encoding: base64` : "",
-      options.html ? "" : "",
-      options.html ? safeBtoa(options.html) : "",
-      options.html ? "" : "",
+      ...(options.html
+        ? [
+            `--${boundary}`,
+            `Content-Type: text/html; charset="UTF-8"`,
+            `Content-Transfer-Encoding: base64`,
+            "",
+            safeBtoa(options.html),
+            "",
+          ]
+        : []),
       `--${boundary}--`,
       ".",
-    ].filter((line) => line !== "").join("\r\n");
+    ];
 
-    await writer.write(encoder.encode(headers + "\r\n"));
-    resp = await readLine(reader);
+    const emailContent = lines.join("\r\n");
+
+    await writer.write(encoder.encode(emailContent + "\r\n"));
+    resp = await reader.readLine();
     if (!resp.startsWith("250")) throw new Error(`SMTP Send Content Error: ${resp}`);
 
     // 10. QUIT
     await sendCmd("QUIT");
-    await readLine(reader);
+    await reader.readLine();
   } finally {
     reader.releaseLock();
     writer.releaseLock();

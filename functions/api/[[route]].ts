@@ -9,7 +9,7 @@ import {
   handleGetMediaLibrary,
   handleDeleteFile
 } from "./_api/files";
-import { handleLogin, handleChangePassword, handleRefresh, handleLogout } from "./_api/auth";
+import { handleLogin, handleChangePassword, handleRefresh, handleLogout, handleVerifyMfa } from "./_api/auth";
 import {
   handleGetItems,
   handleCreateItem,
@@ -130,6 +130,15 @@ async function runMigrations(env: Env) {
     if (colErr.message && (colErr.message.includes("no such column") || colErr.message.includes("has no column"))) {
       console.log("Database Migration: Adding language column to users table...");
       await env.DB.prepare("ALTER TABLE users ADD COLUMN language TEXT DEFAULT 'ja'").run();
+    }
+  }
+
+  try {
+    await env.DB.prepare("SELECT last_active_at FROM users LIMIT 1").all();
+  } catch (colErr: any) {
+    if (colErr.message && (colErr.message.includes("no such column") || colErr.message.includes("has no column"))) {
+      console.log("Database Migration: Adding last_active_at column to users table...");
+      await env.DB.prepare("ALTER TABLE users ADD COLUMN last_active_at DATETIME").run();
     }
   }
 
@@ -376,6 +385,28 @@ async function runMigrations(env: Env) {
       `).run();
     }
   }
+
+  // 11. login_verification_codes テーブルが存在するか確認、なければ作成
+  try {
+    await env.DB.prepare("SELECT 1 FROM login_verification_codes LIMIT 1").all();
+  } catch (tblErr: any) {
+    if (tblErr.message && (tblErr.message.includes("no such table") || tblErr.message.includes("does not exist"))) {
+      console.log("Database Migration: Creating login_verification_codes table...");
+      await env.DB.prepare(`
+        CREATE TABLE IF NOT EXISTS login_verification_codes (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            code TEXT NOT NULL,
+            expires_at DATETIME NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `).run();
+      await env.DB.prepare(`
+        CREATE INDEX IF NOT EXISTS idx_login_verification_codes_user_id ON login_verification_codes(user_id)
+      `).run();
+    }
+  }
 }
 
 async function ensureDatabaseInitialized(env: Env) {
@@ -497,6 +528,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const isEmojiRawRoute = !!url.pathname.match(/^\/api\/workspaces\/([^\/]+)\/emojis\/raw\/([^\/]+)$/);
   const isPublicRoute = 
     url.pathname === "/api/auth/login" ||
+    url.pathname === "/api/auth/login/verify" ||
     url.pathname === "/api/auth/refresh" ||
     url.pathname === "/api/auth/recovery" ||
     url.pathname === "/api/setup/status" ||
@@ -536,6 +568,24 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   // X-User-Id ヘッダーの値を暗号署名検証済みのIDで上書き（なりすまし偽造ヘッダーを完全無効化）
   if (authenticatedUserId) {
+    // 最終アクティブ日時の更新
+    const updateActiveTime = async () => {
+      try {
+        await env.DB.prepare(
+          "UPDATE users SET last_active_at = datetime('now') WHERE id = ?"
+        ).bind(authenticatedUserId).run();
+      } catch (e) {
+        console.error("Failed to update last_active_at:", e);
+      }
+    };
+    if (context && typeof (context as any).waitUntil === "function") {
+      (context as any).waitUntil(updateActiveTime());
+    } else if (context && (context as any).ctx && typeof (context as any).ctx.waitUntil === "function") {
+      (context as any).ctx.waitUntil(updateActiveTime());
+    } else {
+      updateActiveTime();
+    }
+
     const newHeaders = new Headers(request.headers);
     newHeaders.set("X-User-Id", authenticatedUserId);
     request = new Request(req, {
@@ -562,6 +612,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
     if (url.pathname === "/api/auth/login" && method === "POST") {
       return await handleLogin(request, env);
+    }
+    if (url.pathname === "/api/auth/login/verify" && method === "POST") {
+      return await handleVerifyMfa(request, env);
     }
     if (url.pathname === "/api/auth/refresh" && method === "POST") {
       return await handleRefresh(request, env);

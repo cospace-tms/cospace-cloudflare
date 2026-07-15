@@ -1,6 +1,7 @@
 import type { Env } from "../../[[route]]";
 import { linkFileToMessage } from "../files";
 import { sendWebPush } from "../../_utils/webpush";
+import { sendMail, getSmtpSettings } from "../../_utils/smtp";
 
 const headers = {
   "Content-Type": "application/json",
@@ -149,7 +150,8 @@ async function createMessageNotifications(
   messageId: string,
   channelId: string,
   senderId: string,
-  content: string
+  content: string,
+  requestUrl?: string
 ): Promise<void> {
   try {
     // チャンネルの最終更新日時を更新
@@ -170,8 +172,8 @@ async function createMessageNotifications(
 
     if (channel.type === "dm") {
       const { results: members } = await env.DB.prepare(
-        "SELECT user_id as userId FROM channel_members WHERE channel_id = ? AND user_id != ?"
-      ).bind(channelId, senderId).all<{ userId: string }>();
+        "SELECT cm.user_id as userId, u.email, u.last_active_at as lastActiveAt, u.display_name as displayName FROM channel_members cm JOIN users u ON cm.user_id = u.id WHERE cm.channel_id = ? AND cm.user_id != ?"
+      ).bind(channelId, senderId).all<{ userId: string; email: string; lastActiveAt: string | null; displayName: string }>();
 
       const batch = members.map(m => {
         const notificationId = crypto.randomUUID();
@@ -189,13 +191,26 @@ async function createMessageNotifications(
         const title = `${senderName}さんからのダイレクトメッセージ`;
         const linkUrl = `/channels/${channelId}?msg=${messageId}`;
         await sendPushToUsers(env, userIds, title, content.substring(0, 100), linkUrl);
+
+        // オフラインメール通知を送信（SMTP設定が有効な場合）
+        if (requestUrl) {
+          sendOfflineMailNotifications(
+            env,
+            members,
+            senderName,
+            title,
+            content,
+            linkUrl,
+            requestUrl
+          ).catch(err => console.error("Offline mail sending failed:", err));
+        }
       }
       return;
     }
 
     const { results: wsMembers } = await env.DB.prepare(
-      "SELECT u.id as userId, u.display_name as displayName FROM workspace_members wm JOIN users u ON wm.user_id = u.id WHERE wm.workspace_id = ?"
-    ).bind(channel.workspaceId).all<{ userId: string; displayName: string }>();
+      "SELECT u.id as userId, u.display_name as displayName, u.email, u.last_active_at as lastActiveAt FROM workspace_members wm JOIN users u ON wm.user_id = u.id WHERE wm.workspace_id = ?"
+    ).bind(channel.workspaceId).all<{ userId: string; displayName: string; email: string; lastActiveAt: string | null }>();
 
     const targetUserIds = new Set<string>();
 
@@ -229,9 +244,89 @@ async function createMessageNotifications(
       const title = `#${channel.name} でメンションされました`;
       const linkUrl = `/channels/${channelId}?msg=${messageId}`;
       await sendPushToUsers(env, userIds, title, content.substring(0, 100), linkUrl);
+
+      // オフラインメール通知を送信（SMTP設定が有効な場合）
+      if (requestUrl) {
+        const targetMembers = wsMembers.filter(m => targetUserIds.has(m.userId));
+        sendOfflineMailNotifications(
+          env,
+          targetMembers,
+          senderName,
+          title,
+          content,
+          linkUrl,
+          requestUrl
+        ).catch(err => console.error("Offline mail sending failed:", err));
+      }
     }
   } catch (err) {
     console.error("Failed to create message notifications:", err);
+  }
+}
+
+// オフラインの通知対象者へメールを送信するヘルパー
+async function sendOfflineMailNotifications(
+  env: Env,
+  recipients: { email: string; lastActiveAt: string | null; displayName: string }[],
+  senderName: string,
+  title: string,
+  contentSnippet: string,
+  linkUrl: string,
+  requestUrl: string
+): Promise<void> {
+  try {
+    const smtpSettings = await getSmtpSettings(env);
+    if (!smtpSettings) return; // SMTP設定が無効な場合は早期リターン
+
+    const now = Date.now();
+    const offlineThreshold = 5 * 60 * 1000; // 5分
+
+    // オフライン判定された受信者のみ抽出
+    const offlineRecipients = recipients.filter(r => {
+      if (!r.lastActiveAt) return true;
+      const lastActive = new Date(r.lastActiveAt).getTime();
+      return (now - lastActive) > offlineThreshold;
+    });
+
+    if (offlineRecipients.length === 0) return;
+
+    const url = new URL(requestUrl);
+    const fullLinkUrl = `${url.protocol}//${url.host}${linkUrl}`;
+    const snippet = contentSnippet.length > 100 ? contentSnippet.substring(0, 100) + "..." : contentSnippet;
+
+    const mailPromises = offlineRecipients.map(async (r) => {
+      try {
+        await sendMail(smtpSettings, {
+          to: r.email,
+          subject: `[CoHive] ${title}`,
+          text: `こんにちは、${r.displayName}さん。\n\nCoHiveにて新しい通知があります。\n\n件名: ${title}\n送信者: ${senderName}\n内容:\n${snippet}\n\n以下のリンクから確認してください。\n${fullLinkUrl}`,
+          html: `
+            <div style="font-family: sans-serif; padding: 20px; border: 1px solid #eaeaea; border-radius: 5px; max-width: 600px; margin: 0 auto; color: #333;">
+              <h2 style="color: #4f46e5; margin-top: 0; font-size: 18px; border-bottom: 2px solid #4f46e5; padding-bottom: 8px;">CoHive 通知</h2>
+              <p>こんにちは、<strong>${r.displayName}</strong> さん。</p>
+              <p>${title}</p>
+              <div style="background: #f9fafb; padding: 15px; border-left: 4px solid #4f46e5; margin: 15px 0; font-size: 14px; white-space: pre-wrap; color: #444;">
+                <strong>${senderName}</strong>: ${escapeHtml(snippet)}
+              </div>
+              <div style="margin: 25px 0; text-align: center;">
+                <a href="${fullLinkUrl}" style="background: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold; font-size: 14px; box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2);">
+                   通知を確認する
+                </a>
+              </div>
+              <p style="color: #9ca3af; font-size: 11px; margin-top: 25px; border-top: 1px solid #eee; padding-top: 10px; text-align: center;">
+                ※本メールは自動送信されています。返信は受け付けておりません。
+              </p>
+            </div>
+          `
+        });
+      } catch (err) {
+        console.error(`Failed to send offline notification mail to ${r.email}:`, err);
+      }
+    });
+
+    await Promise.all(mailPromises);
+  } catch (err) {
+    console.error("Failed in sendOfflineMailNotifications:", err);
   }
 }
 
@@ -390,7 +485,7 @@ export async function handleCreateMessage(request: Request, env: Env, channelId:
     await linkFileToMessage(env, sanitizedFileUrl, fileName, fileSize, channelId, messageId, userId);
 
     // 非同期で通知を作成（バックグラウンド実行）
-    createMessageNotifications(env, messageId, channelId, userId, sanitizedContent).catch(err => {
+    createMessageNotifications(env, messageId, channelId, userId, sanitizedContent, request.url).catch(err => {
       console.error("Failed to create message notifications:", err);
     });
 
@@ -589,7 +684,7 @@ export async function handleCreateMessageGeneral(request: Request, env: Env): Pr
     await linkFileToMessage(env, sanitizedFileUrl, fileName, fileSize, channelId, messageId, userId);
 
     // 非同期で通知を作成（バックグラウンド実行）
-    createMessageNotifications(env, messageId, channelId, userId, sanitizedContent).catch(err => {
+    createMessageNotifications(env, messageId, channelId, userId, sanitizedContent, request.url).catch(err => {
       console.error("Failed to create message notifications:", err);
     });
 
