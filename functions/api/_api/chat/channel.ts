@@ -1,4 +1,6 @@
 import type { Env } from "../../[[route]]";
+import { logAudit } from "../../_utils/audit";
+import { checkWorkspaceLimit } from "../../_utils/saas";
 
 const headers = {
   "Content-Type": "application/json",
@@ -134,7 +136,25 @@ export async function handleCreateChannel(request: Request, env: Env, workspaceI
 
     const channelType = type || 'channel';
 
+    if (channelType === 'channel') {
+      const limitCheck = await checkWorkspaceLimit(env, workspaceId, 'channel');
+      if (!limitCheck.allowed) {
+        return new Response(JSON.stringify({ error: limitCheck.message }), {
+          status: 403,
+          headers,
+        });
+      }
+    }
+
     if (channelType === 'dm') {
+      const dmLimitCheck = await checkWorkspaceLimit(env, workspaceId, 'dm');
+      if (!dmLimitCheck.allowed) {
+        return new Response(JSON.stringify({ error: dmLimitCheck.message }), {
+          status: 403,
+          headers,
+        });
+      }
+
       if (creator?.role === 'guest') {
         return new Response(JSON.stringify({ error: "Guests are not allowed to start DMs" }), {
           status: 403,
@@ -209,6 +229,9 @@ export async function handleCreateChannel(request: Request, env: Env, workspaceI
       env.DB.prepare("INSERT INTO channel_members (channel_id, user_id, created_at) VALUES (?, ?, datetime('now'))").bind(channelId, uid)
     );
     await env.DB.batch(batch);
+
+    // 監査ログの記録
+    logAudit(env, workspaceId, userId, "channel_create", { channelId, channelName: name || "DM", type: channelType }, request).catch(console.error);
 
     return new Response(JSON.stringify({
       success: true,
@@ -308,6 +331,9 @@ export async function handleUpdateChannel(request: Request, env: Env, channelId:
       "UPDATE channels SET name = ?, description = ?, is_private = ?, updated_at = datetime('now') WHERE id = ?"
     ).bind(name || "", description || "", isPrivateInt, channelId).run();
 
+    // 監査ログの記録
+    logAudit(env, channel.workspaceId, operatorId, "channel_update", { channelId, channelName: name }, request).catch(console.error);
+
     return new Response(JSON.stringify({
       success: true,
       data: {
@@ -390,6 +416,9 @@ export async function handleDeleteChannel(request: Request, env: Env, channelId:
     await env.DB.prepare(
       "DELETE FROM channels WHERE id = ?"
     ).bind(channelId).run();
+
+    // 監査ログの記録
+    logAudit(env, channel.workspaceId, operatorId, "channel_delete", { channelId }, request).catch(console.error);
 
     return new Response(JSON.stringify({ success: true }), {
       status: 200,

@@ -105,8 +105,20 @@ export async function handleSetupStatus(request: Request, env: Env): Promise<Res
     
     const count = results?.[0]?.count ?? 0;
     const setupRequired = count === 0;
+
+    let adminSetupRequired = false;
+    if (env.SAAS_MODE === "true") {
+      try {
+        const { results: adminRes } = await env.DB.prepare(
+          "SELECT COUNT(*) as count FROM saas_admins"
+        ).all<{ count: number }>();
+        adminSetupRequired = (adminRes?.[0]?.count ?? 0) === 0;
+      } catch (e) {
+        console.warn("Failed to check saas_admins count in setup status:", e);
+      }
+    }
     
-    return new Response(JSON.stringify({ setupRequired }), {
+    return new Response(JSON.stringify({ setupRequired, adminSetupRequired }), {
       status: 200,
       headers
     });

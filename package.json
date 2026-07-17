@@ -1,8 +1,10 @@
 {
-  "name": "cohive-cloudflare-root",
+  "name": "cohive-cloudflare",
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "main": "functions/api/_api/index.ts",
+  "types": "functions/api/_api/index.ts",
   "scripts": {
     "dev": "vite",
     "build": "node build.js",

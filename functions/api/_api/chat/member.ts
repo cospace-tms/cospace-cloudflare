@@ -1,7 +1,9 @@
 import type { Env } from "../../[[route]]";
+import { checkWorkspaceLimit } from "../../_utils/saas";
 import { sendMail, getSmtpSettings } from "../../_utils/smtp";
 import { canAccessChannel, sendPushToUsers } from "./message";
 import { verifyPassword, hashPassword } from "../setup";
+import { logAudit } from "../../_utils/audit";
 
 const headers = {
   "Content-Type": "application/json",
@@ -125,6 +127,14 @@ export async function handleAddWorkspaceMember(request: Request, env: Env, works
       });
     }
 
+    const limitCheck = await checkWorkspaceLimit(env, workspaceId, 'member');
+    if (!limitCheck.allowed) {
+      return new Response(JSON.stringify({ error: limitCheck.message }), {
+        status: 403,
+        headers,
+      });
+    }
+
     const memberRole = role || 'member';
 
     // 既存ユーザーを検索
@@ -171,6 +181,9 @@ export async function handleAddWorkspaceMember(request: Request, env: Env, works
     await env.DB.prepare(
       "INSERT INTO workspace_members (workspace_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, datetime('now'), datetime('now'))"
     ).bind(workspaceId, userId, memberRole).run();
+
+    // 監査ログの記録
+    logAudit(env, workspaceId, null, "member_add", { invitedEmail: email, role: memberRole }, request).catch(console.error);
 
     // 招待メールの送信（SMTP設定が有効な場合のみ）
     const smtpSettings = await getSmtpSettings(env);
@@ -370,6 +383,9 @@ export async function handleUpdateWorkspaceMember(request: Request, env: Env, wo
       "UPDATE workspace_members SET role = ?, updated_at = datetime('now') WHERE workspace_id = ? AND user_id = ?"
     ).bind(role, workspaceId, userId).run();
 
+    // 監査ログの記録
+    logAudit(env, workspaceId, operatorId, "member_update_role", { targetUserId: userId, newRole: role }, request).catch(console.error);
+
     return new Response(JSON.stringify({ success: true }), {
       status: 200,
       headers,
@@ -458,6 +474,9 @@ export async function handleDeleteWorkspaceMember(request: Request, env: Env, wo
     await env.DB.prepare(
       "DELETE FROM workspace_members WHERE workspace_id = ? AND user_id = ?"
     ).bind(workspaceId, userId).run();
+
+    // 監査ログの記録
+    logAudit(env, workspaceId, operatorId, "member_remove", { targetUserId: userId }, request).catch(console.error);
 
     return new Response(JSON.stringify({ success: true }), {
       status: 200,

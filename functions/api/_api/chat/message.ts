@@ -389,6 +389,16 @@ export async function handleGetMessages(request: Request, env: Env, channelId: s
       });
     }
 
+    // SaaSプランに応じた履歴期間制限の取得
+    let days = 0;
+    if (env.SAAS_LIMITS?.getMessageFilterDays) {
+      try {
+        days = await env.SAAS_LIMITS.getMessageFilterDays(env, channelId);
+      } catch (err) {
+        console.error("Failed to get message filter days from hook:", err);
+      }
+    }
+
     let query = `
       SELECT 
         m.id, 
@@ -428,6 +438,14 @@ export async function handleGetMessages(request: Request, env: Env, channelId: s
     `;
 
     const params: any[] = [channelId];
+
+    if (days > 0) {
+      const limitDate = new Date();
+      limitDate.setDate(limitDate.getDate() - days);
+      const limitIso = limitDate.toISOString();
+      query += " AND m.created_at >= ?";
+      params.push(limitIso);
+    }
 
     if (since) {
       query += " AND m.created_at > ?";
@@ -517,6 +535,9 @@ export async function handleCreateMessage(request: Request, env: Env, channelId:
       "INSERT INTO messages (id, channel_id, user_id, parent_id, content, file_url, file_name, file_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).bind(messageId, channelId, userId, parentId || null, sanitizedContent, sanitizedFileUrl, fileName || null, fileSize || null, createdAt, createdAt).run();
 
+    // SaaS メッセージ自動削除クリーンアップを実行
+    await checkAndCleanupMessagesLimit(env, channelId);
+
     // 添付ファイルをメディアライブラリ（filesテーブル）に登録・更新
     await linkFileToMessage(env, sanitizedFileUrl, fileName, fileSize, channelId, messageId, userId);
 
@@ -576,6 +597,16 @@ export async function handleGetMessagesGeneral(request: Request, env: Env): Prom
       });
     }
 
+    // SaaSプランに応じた履歴期間制限の取得
+    let days = 0;
+    if (env.SAAS_LIMITS?.getMessageFilterDays) {
+      try {
+        days = await env.SAAS_LIMITS.getMessageFilterDays(env, channelId);
+      } catch (err) {
+        console.error("Failed to get message filter days from hook:", err);
+      }
+    }
+
     let query = `
       SELECT 
         m.id, 
@@ -616,6 +647,14 @@ export async function handleGetMessagesGeneral(request: Request, env: Env): Prom
     `;
 
     const params: any[] = [channelId];
+
+    if (days > 0) {
+      const limitDate = new Date();
+      limitDate.setDate(limitDate.getDate() - days);
+      const limitIso = limitDate.toISOString();
+      query += " AND m.created_at >= ?";
+      params.push(limitIso);
+    }
 
     if (lastId) {
       const lastMsg = await env.DB.prepare(
@@ -717,6 +756,9 @@ export async function handleCreateMessageGeneral(request: Request, env: Env): Pr
     await env.DB.prepare(
       "INSERT INTO messages (id, channel_id, user_id, parent_id, content, file_url, file_name, file_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).bind(messageId, channelId, userId, parentId || null, sanitizedContent, sanitizedFileUrl, fileName || null, fileSize || null, createdAt, createdAt).run();
+
+    // SaaS メッセージ自動削除クリーンアップを実行
+    await checkAndCleanupMessagesLimit(env, channelId);
 
     // 添付ファイルをメディアライブラリ（filesテーブル）に登録・更新
     await linkFileToMessage(env, sanitizedFileUrl, fileName, fileSize, channelId, messageId, userId);
@@ -835,5 +877,16 @@ export async function handleToggleReaction(request: Request, env: Env): Promise<
       status: 500,
       headers,
     });
+  }
+}
+
+// SaaSプラン用のメッセージ履歴自動クリーンアップ（期間制限）
+async function checkAndCleanupMessagesLimit(env: Env, channelId: string): Promise<void> {
+  if (env.SAAS_LIMITS?.checkAndCleanupMessagesLimit) {
+    try {
+      await env.SAAS_LIMITS.checkAndCleanupMessagesLimit(env, channelId);
+    } catch (err) {
+      console.error("Failed to execute SaaS message auto-cleanup via hook:", err);
+    }
   }
 }

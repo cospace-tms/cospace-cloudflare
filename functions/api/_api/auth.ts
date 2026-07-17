@@ -1,7 +1,8 @@
 import type { Env } from "../[[route]]";
-import { verifyPassword, hashPassword } from "./setup";
+import { verifyPassword, hashPassword, generateRecoveryCode } from "./setup";
 import { signJWT, verifyJWT, getJwtSecret, serializeCookie, parseCookies } from "../_utils/jwt";
 import { sendMail, getSmtpSettings } from "../_utils/smtp";
+import { logAudit } from "../_utils/audit";
 
 export async function handleLogin(request: Request, env: Env): Promise<Response> {
   const origin = request.headers.get("Origin") || "*";
@@ -145,6 +146,9 @@ export async function handleLogin(request: Request, env: Env): Promise<Response>
 
     const responseHeaders = new Headers(headers);
     responseHeaders.append("Set-Cookie", cookieValue);
+
+    // 監査ログの記録
+    logAudit(env, workspaceId || null, userResult.id, "user_login", { email: userResult.email, method: "password" }, request).catch(console.error);
 
     // ログインアラートメールを送信（非同期）
     sendLoginAlertMail(request, env, userResult.email, userResult.display_name).catch(console.error);
@@ -520,6 +524,9 @@ export async function handleVerifyMfa(request: Request, env: Env): Promise<Respo
     const responseHeaders = new Headers(headers);
     responseHeaders.append("Set-Cookie", cookieValue);
 
+    // 監査ログの記録
+    logAudit(env, workspaceId || null, userResult.id, "user_login", { email: userResult.email, method: "mfa" }, request).catch(console.error);
+
     // ログイン成功時にログインアラートメールを送信（非同期）
     sendLoginAlertMail(request, env, userResult.email, userResult.display_name).catch(console.error);
 
@@ -589,3 +596,78 @@ async function sendLoginAlertMail(
     console.error("Failed to send login alert email:", err);
   }
 }
+
+// 新規ユーザー登録 (セルフサインアップ)
+export async function handleRegister(request: Request, env: Env): Promise<Response> {
+  const origin = request.headers.get("Origin") || "*";
+  const headers = {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  };
+
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers });
+  }
+
+  try {
+    const body: any = await request.json();
+    const { email, password, displayName, language } = body;
+
+    if (!email || !password || !displayName) {
+      return new Response(JSON.stringify({ error: "Missing required fields (email, password, displayName)" }), {
+        status: 400,
+        headers,
+      });
+    }
+
+    if (password.length < 8) {
+      return new Response(JSON.stringify({ error: "Password must be at least 8 characters long" }), {
+        status: 400,
+        headers,
+      });
+    }
+
+    // メールアドレス重複チェック
+    const existingUser = await env.DB.prepare(
+      "SELECT id FROM users WHERE email = ?"
+    ).bind(email).first<{ id: string }>();
+
+    if (existingUser) {
+      return new Response(JSON.stringify({ error: "Email is already registered" }), {
+        status: 400,
+        headers,
+      });
+    }
+
+    const passwordHash = await hashPassword(password);
+    const recoveryCode = generateRecoveryCode();
+    const recoveryCodeHash = await hashPassword(recoveryCode);
+    const userId = crypto.randomUUID();
+
+    await env.DB.prepare(
+      "INSERT INTO users (id, email, password_hash, recovery_code_hash, display_name, language, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))"
+    ).bind(userId, email, passwordHash, recoveryCodeHash, displayName, language || 'ja').run();
+
+    return new Response(JSON.stringify({
+      success: true,
+      message: "User registered successfully",
+      data: {
+        userId,
+        recoveryCode,
+      }
+    }), {
+      status: 201,
+      headers,
+    });
+
+  } catch (error: any) {
+    return new Response(JSON.stringify({ error: error.message || "Internal Server Error" }), {
+      status: 500,
+      headers,
+    });
+  }
+}
+

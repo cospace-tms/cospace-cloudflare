@@ -1,6 +1,8 @@
 import type { Env } from "../[[route]]";
+import { checkWorkspaceLimit } from "../_utils/saas";
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { logAudit } from "../_utils/audit";
 
 function getS3Client(env: Env): S3Client {
   const { R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ACCOUNT_ID } = env;
@@ -220,7 +222,7 @@ export async function handleDirectUpload(request: Request, env: Env): Promise<Re
 
     const formData = await request.formData();
     const file = formData.get("file") as File;
-    const workspaceId = formData.get("workspaceId") as string;
+    const workspaceId = (formData.get("workspaceId") as string) || request.headers.get("X-Workspace-Id");
     const channelId = formData.get("channelId") as string | null;
     const isPrivateStr = formData.get("isPrivate") as string | null;
     const isPrivate = isPrivateStr === "1" ? 1 : 0;
@@ -237,6 +239,28 @@ export async function handleDirectUpload(request: Request, env: Env): Promise<Re
         status: 400,
         headers,
       });
+    }
+
+    // SaaS制限チェック
+    if (file && workspaceId) {
+      // 1. ストレージ容量制限チェック
+      const limitCheck = await checkWorkspaceLimit(env, workspaceId, "storage", file.size);
+      if (!limitCheck.allowed) {
+        return new Response(JSON.stringify({ error: limitCheck.message }), {
+          status: 403,
+          headers,
+        });
+      }
+
+      // 2. メディア無効・禁止拡張子チェック
+      const uploadExt = file.name.includes(".") ? `.${file.name.split(".").pop()}` : "";
+      const mediaCheck = await checkWorkspaceLimit(env, workspaceId, "media", 1, { fileExtension: uploadExt });
+      if (!mediaCheck.allowed) {
+        return new Response(JSON.stringify({ error: mediaCheck.message }), {
+          status: 403,
+          headers,
+        });
+      }
     }
 
     const fileId = crypto.randomUUID();
@@ -265,6 +289,9 @@ export async function handleDirectUpload(request: Request, env: Env): Promise<Re
       file.type,
       isPrivate
     ).run();
+
+    // 監査ログの記録
+    logAudit(env, workspaceId, userId, "file_upload", { fileId, fileName: file.name, fileSize: file.size, contentType: file.type }, request).catch(console.error);
 
     return new Response(
       JSON.stringify({
@@ -621,6 +648,9 @@ export async function handleDeleteFile(request: Request, env: Env): Promise<Resp
 
     // DBから削除
     await env.DB.prepare("DELETE FROM files WHERE id = ?").bind(fileId).run();
+
+    // 監査ログの記録
+    logAudit(env, fileInfo.workspace_id, userId, "file_delete", { fileId, fileName: fileInfo.object_key }, request).catch(console.error);
 
     return new Response(JSON.stringify({ success: true, message: "File deleted successfully" }), {
       status: 200,

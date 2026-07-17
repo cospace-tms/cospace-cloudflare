@@ -9,7 +9,7 @@ import {
   handleGetMediaLibrary,
   handleDeleteFile
 } from "./_api/files";
-import { handleLogin, handleChangePassword, handleRefresh, handleLogout, handleVerifyMfa } from "./_api/auth";
+import { handleLogin, handleChangePassword, handleRefresh, handleLogout, handleVerifyMfa, handleRegister } from "./_api/auth";
 import {
   handleGetItems,
   handleCreateItem,
@@ -102,6 +102,7 @@ import {
   handleUnstarChannel
 } from "./_api/pins_and_stars";
 import { handleGetVapidPublicKey, handleSubscribe, handleSendTestPush, handleUnsubscribeAll, handleCheckRegistration } from "./_api/push";
+import { getWorkspaceSubscription } from "./_utils/saas";
 
 export interface Env {
   DB: D1Database;
@@ -111,6 +112,7 @@ export interface Env {
   R2_SECRET_ACCESS_KEY?: string;
   R2_ACCOUNT_ID?: string;
   JWT_SECRET?: string;
+  SAAS_LIMITS?: any;
 }
 
 async function runMigrations(env: Env) {
@@ -386,7 +388,7 @@ async function runMigrations(env: Env) {
     }
   }
 
-  // 11. login_verification_codes テーブルが存在するか確認、なければ作成
+  // 7. login_verification_codes テーブルが存在するか確認、なければ作成
   try {
     await env.DB.prepare("SELECT 1 FROM login_verification_codes LIMIT 1").all();
   } catch (tblErr: any) {
@@ -531,14 +533,17 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   // JWT認証検証 (CORSプリフライトOPTIONSリクエストは認証不要)
   const jwtSecret = await getJwtSecret(env);
   const isEmojiRawRoute = !!url.pathname.match(/^\/api\/workspaces\/([^\/]+)\/emojis\/raw\/([^\/]+)$/);
+  const isAdminRoute = url.pathname.startsWith("/api/admin/");
   const isPublicRoute = 
     url.pathname === "/api/auth/login" ||
     url.pathname === "/api/auth/login/verify" ||
+    url.pathname === "/api/auth/register" ||
     url.pathname === "/api/auth/refresh" ||
     url.pathname === "/api/auth/recovery" ||
     url.pathname === "/api/setup/status" ||
     url.pathname === "/api/setup/register" ||
-    isEmojiRawRoute;
+    isEmojiRawRoute ||
+    isAdminRoute;
 
   let authenticatedUserId: string | null = null;
 
@@ -616,6 +621,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (url.pathname === "/api/auth/recovery" && method === "POST") {
       return await handleRecovery(request, env);
     }
+    if (url.pathname === "/api/auth/register" && method === "POST") {
+      return await handleRegister(request, env);
+    }
     if (url.pathname === "/api/auth/login" && method === "POST") {
       return await handleLogin(request, env);
     }
@@ -681,6 +689,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return await handleGetMediaLibrary(request, env);
     }
 
+    // 一般ユーザー向け SaaS プラン一覧 API
+    if (url.pathname === "/api/plans") {
+      if (method === "GET") return await handleGetPublicSaaSPlans(request, env);
+      if (method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" } });
+    }
+
     // 4. ワークスペース関連 API
     if (url.pathname === "/api/workspaces" && method === "GET") {
       return await handleGetWorkspaces(request, env);
@@ -688,6 +702,66 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (url.pathname === "/api/workspaces" && method === "POST") {
       return await handleCreateWorkspace(request, env);
     }
+    const subscriptionMatch = url.pathname.match(/^\/api\/workspaces\/([^\/]+)\/subscription$/);
+    if (subscriptionMatch && method === "GET") {
+      const workspaceId = subscriptionMatch[1];
+      try {
+        const data = await getWorkspaceSubscription(env, workspaceId);
+        
+        let stripeEnabled = false;
+        let stripePublishableKey = "";
+        try {
+          const stripeSettings = await getStripeSettings(env);
+          stripeEnabled = stripeSettings?.enabled || false;
+          stripePublishableKey = stripeSettings?.publishableKey || "";
+        } catch {}
+
+        return new Response(JSON.stringify({ 
+          success: true, 
+          data: {
+            ...data,
+            stripeEnabled,
+            stripePublishableKey
+          } 
+        }), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+          },
+        });
+      } catch (err: any) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500,
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+          },
+        });
+      }
+    }
+
+    // 監査ログ（ワークスペース個別）
+    const workspaceAuditLogsMatch = url.pathname.match(/^\/api\/workspaces\/([^\/]+)\/audit-logs$/);
+    if (workspaceAuditLogsMatch) {
+      const workspaceId = workspaceAuditLogsMatch[1];
+      return await handleGetWorkspaceAuditLogs(request, env, workspaceId);
+    }
+
+    // Stripe Checkout
+    const billingCheckoutMatch = url.pathname.match(/^\/api\/workspaces\/([^\/]+)\/billing\/checkout$/);
+    if (billingCheckoutMatch) {
+      const workspaceId = billingCheckoutMatch[1];
+      return await handleCreateBillingCheckout(request, env, workspaceId);
+    }
+
+    // Stripe Portal
+    const billingPortalMatch = url.pathname.match(/^\/api\/workspaces\/([^\/]+)\/billing\/portal$/);
+    if (billingPortalMatch) {
+      const workspaceId = billingPortalMatch[1];
+      return await handleCreateBillingPortal(request, env, workspaceId);
+    }
+
     const workspaceMembersMatch = url.pathname.match(/^\/api\/workspaces\/([^\/]+)\/members$/);
     if (workspaceMembersMatch) {
       const workspaceId = workspaceMembersMatch[1];

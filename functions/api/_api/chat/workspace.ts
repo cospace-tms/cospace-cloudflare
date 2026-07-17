@@ -1,4 +1,5 @@
 import type { Env } from "../../[[route]]";
+import { logAudit } from "../../_utils/audit";
 
 const headers = {
   "Content-Type": "application/json",
@@ -60,6 +61,22 @@ export async function handleCreateWorkspace(request: Request, env: Env): Promise
     const defaultChannelId = crypto.randomUUID();
     const userId = request.headers.get("X-User-Id");
 
+    if (env.SAAS_MODE === "true" && userId) {
+      const ownedWS = await env.DB.prepare(
+        "SELECT COUNT(*) as count FROM workspace_members WHERE user_id = ? AND role = 'owner'"
+      ).bind(userId).first<{ count: number }>();
+      
+      const count = ownedWS?.count ?? 0;
+      if (count >= 3) {
+        return new Response(JSON.stringify({ 
+          error: "無料プランの制限に達しました。作成可能なワークスペースは最大3つまでです。将来の有料プランで制限が解除されます。" 
+        }), {
+          status: 403,
+          headers,
+        });
+      }
+    }
+
     const insertWorkspace = env.DB.prepare(
       "INSERT INTO workspaces (id, name, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))"
     ).bind(workspaceId, name);
@@ -77,7 +94,30 @@ export async function handleCreateWorkspace(request: Request, env: Env): Promise
       batch.push(insertMember);
     }
 
+    if (env.SAAS_MODE === "true") {
+      const defaultPlanSetting = await env.DB.prepare(
+        "SELECT value FROM system_settings WHERE key = ?"
+      ).bind("default_saas_plan").first<{ value: string }>();
+      const defaultPlan = defaultPlanSetting?.value || "free";
+
+      const planDetail = await env.DB.prepare(
+        "SELECT storage_limit, member_limit, channel_limit FROM saas_plans WHERE id = ?"
+      ).bind(defaultPlan).first<{ storage_limit: number; member_limit: number; channel_limit: number }>();
+
+      const storageLimit = planDetail ? planDetail.storage_limit : 52428800; // 50MB
+      const memberLimit = planDetail ? planDetail.member_limit : 5;
+      const channelLimit = planDetail ? planDetail.channel_limit : 3;
+
+      const insertSubscription = env.DB.prepare(
+        "INSERT INTO workspace_subscriptions (workspace_id, plan, storage_limit, member_limit, channel_limit, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', datetime('now'), datetime('now'))"
+      ).bind(workspaceId, defaultPlan, storageLimit, memberLimit, channelLimit);
+      batch.push(insertSubscription);
+    }
+
     await env.DB.batch(batch);
+
+    // 監査ログの記録
+    logAudit(env, workspaceId, userId, "workspace_create", { workspaceName: name }, request).catch(console.error);
 
     return new Response(JSON.stringify({
       success: true,
@@ -156,6 +196,9 @@ export async function handleUpdateWorkspace(request: Request, env: Env, workspac
       `UPDATE workspaces SET ${updateFields} WHERE id = ?`
     ).bind(...params).run();
 
+    // 監査ログの記録
+    logAudit(env, workspaceId, operatorId, "workspace_update", { workspaceName: name, customStatuses }, request).catch(console.error);
+
     return new Response(JSON.stringify({
       success: true,
       data: {
@@ -208,6 +251,9 @@ export async function handleDeleteWorkspace(request: Request, env: Env, workspac
     await env.DB.prepare(
       "DELETE FROM workspaces WHERE id = ?"
     ).bind(workspaceId).run();
+
+    // 監査ログの記録
+    logAudit(env, workspaceId, operatorId, "workspace_delete", {}, request).catch(console.error);
 
     return new Response(JSON.stringify({ success: true }), {
       status: 200,

@@ -19,7 +19,7 @@ export interface MailOptions {
 }
 
 // AES-GCM によるデータの暗号化
-async function encryptText(text: string, secret: string): Promise<string> {
+export async function encryptText(text: string, secret: string): Promise<string> {
   const enc = new TextEncoder();
   // 秘密鍵を32バイトの境界に調整
   const keyBytes = enc.encode(secret.padEnd(32, "0").slice(0, 32));
@@ -47,7 +47,7 @@ async function encryptText(text: string, secret: string): Promise<string> {
 }
 
 // AES-GCM によるデータの復号
-async function decryptText(encryptedData: string, secret: string): Promise<string> {
+export async function decryptText(encryptedData: string, secret: string): Promise<string> {
   const parts = encryptedData.split(":");
   if (parts.length !== 2) throw new Error("Invalid encrypted format");
   const [ivHex, encryptedHex] = parts;
