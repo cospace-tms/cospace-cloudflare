@@ -878,6 +878,7 @@ export async function handleDeleteGroupMember(request: Request, env: Env, groupI
           status: 403,
           headers,
         });
+      }
     }
     await env.DB.prepare(
       "DELETE FROM group_members WHERE group_id = ? AND user_id = ?"
