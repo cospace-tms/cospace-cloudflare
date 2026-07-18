@@ -211,6 +211,7 @@ CREATE INDEX IF NOT EXISTS idx_items_start_at ON items(start_at);
 CREATE INDEX IF NOT EXISTS idx_items_status ON items(status);
 CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_workspace_id ON notifications(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_unread_lookup ON notifications(user_id, is_read, is_archived);
 CREATE INDEX IF NOT EXISTS idx_files_workspace_id ON files(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_files_channel_id ON files(channel_id);
 CREATE INDEX IF NOT EXISTS idx_files_uploader_id ON files(uploader_id);

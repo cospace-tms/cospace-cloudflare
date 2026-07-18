@@ -64,7 +64,8 @@ import {
   handleGetNotifications,
   handleReadNotification,
   handleReadAllNotifications,
-  handleArchiveNotification
+  handleArchiveNotification,
+  handleGetUnreadNotificationsCount
 } from "./_api/notifications";
 import {
   handleGetWorkspaceDocument,
@@ -113,6 +114,8 @@ export interface Env {
   R2_ACCOUNT_ID?: string;
   JWT_SECRET?: string;
   SAAS_LIMITS?: any;
+  ENCRYPTION_SECRET?: string;
+  ALLOWED_ORIGINS?: string;
 }
 
 async function runMigrations(env: Env) {
@@ -409,6 +412,15 @@ async function runMigrations(env: Env) {
       `).run();
     }
   }
+
+  // 11. 未読通知カウント高速化インデックスの追加
+  try {
+    await env.DB.prepare(`
+      CREATE INDEX IF NOT EXISTS idx_notifications_unread_lookup ON notifications(user_id, is_read, is_archived)
+    `).run();
+  } catch (idxErr) {
+    console.error("Database Migration: Failed to create idx_notifications_unread_lookup:", idxErr);
+  }
 }
 
 async function ensureDatabaseInitialized(env: Env) {
@@ -469,11 +481,8 @@ async function checkSetupInterceptor(request: Request, env: Env): Promise<Respon
   return null;
 }
 
-/**
- * Cloudflare Pages Functions の統合エントリーポイント。
- */
 export const onRequest: PagesFunction<Env> = async (context) => {
-  const { request: req, env } = context;
+  const { request, env } = context;
 
   // データベースの自動初期化
   try {
@@ -482,16 +491,32 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     console.error("Failed to auto-initialize database:", err);
   }
 
-  let request = req;
   const url = new URL(request.url);
-  const method = request.method;
 
   // API以外のリクエスト（静的アセットやSPAルーティングなど）はアセットサーバーへ直接パススルーする
   if (!url.pathname.startsWith("/api/")) {
     return await context.next();
   }
 
-  const origin = request.headers.get("Origin") || "*";
+  const requestOrigin = request.headers.get("Origin");
+  let origin = "*";
+
+  if (requestOrigin) {
+    if (env.ALLOWED_ORIGINS) {
+      const allowed = env.ALLOWED_ORIGINS.split(",")
+        .map(o => o.trim())
+        .filter(o => o.length > 0);
+      if (allowed.includes(requestOrigin)) {
+        origin = requestOrigin;
+      } else {
+        origin = "null";
+      }
+    } else {
+      origin = requestOrigin;
+    }
+  }
+
+  const method = request.method;
 
   // CORSのプリフライト (OPTIONS) リクエストへの共通応答
   if (method === "OPTIONS") {
@@ -506,11 +531,46 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     });
   }
 
-  // レートリミットの適用（ログイン・リカバリーAPIが対象）
-  if (
-    (url.pathname === "/api/auth/login" || url.pathname === "/api/auth/recovery") &&
-    method === "POST"
-  ) {
+  let response: Response;
+  try {
+    response = await handleApiRequests(context, origin);
+  } catch (error: any) {
+    response = new Response(
+      JSON.stringify({ error: error.message || "Internal Server Error" }),
+      {
+        status: 500,
+        headers: {
+          "Content-Type": "application/json"
+        }
+      }
+    );
+  }
+
+  const responseHeaders = new Headers(response.headers);
+  responseHeaders.set("Access-Control-Allow-Origin", origin);
+  responseHeaders.set("Access-Control-Allow-Credentials", "true");
+  responseHeaders.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  responseHeaders.set("Access-Control-Allow-Headers", "Content-Type, X-Workspace-Id, X-User-Id, Authorization");
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: responseHeaders,
+  });
+};
+
+async function handleApiRequests(context: EventContext<Env, any, any>, origin: string): Promise<Response> {
+  const { request: req, env } = context;
+  let request = req;
+  const url = new URL(request.url);
+  const method = request.method;
+
+  // レートリミットの適用（ログイン・リカバリー、高負荷・書き込み系APIが対象）
+  const isAuthPost = (url.pathname === "/api/auth/login" || url.pathname === "/api/auth/recovery") && method === "POST";
+  const isMessagePost = (url.pathname.match(/^\/api\/channels\/([^\/]+)\/messages$/) || url.pathname === "/api/messages") && method === "POST";
+  const isSearchGet = url.pathname.includes("/search") && method === "GET";
+
+  if (isAuthPost || isMessagePost || isSearchGet) {
     const ip = request.headers.get("CF-Connecting-IP") || "unknown";
     try {
       const { success } = await env.RATE_LIMITER.limit({ key: ip });
@@ -1011,6 +1071,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return await handleGetActivities(request, env);
     }
     // 10. 通知関連 API
+    if (url.pathname === "/api/notifications/unread-count" && method === "GET") {
+      return await handleGetUnreadNotificationsCount(request, env);
+    }
     if (url.pathname === "/api/notifications" && method === "GET") {
       return await handleGetNotifications(request, env, "all");
     }

@@ -2,9 +2,6 @@ import type { Env } from "../[[route]]";
 
 const headers = {
   "Content-Type": "application/json",
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-Workspace-Id, X-User-Id",
 };
 
 // 1. 通知一覧取得
@@ -162,6 +159,37 @@ export async function handleArchiveNotification(request: Request, env: Env, noti
     ).bind(isArchived, notificationId, userId).run();
 
     return new Response(JSON.stringify({ success: true }), {
+      status: 200,
+      headers,
+    });
+  } catch (err: any) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 500,
+      headers,
+    });
+  }
+}
+
+// 5. 未読通知件数の取得
+export async function handleGetUnreadNotificationsCount(request: Request, env: Env): Promise<Response> {
+  try {
+    const userId = request.headers.get("X-User-Id");
+
+    if (!userId) {
+      return new Response(JSON.stringify({ error: "User unauthorized" }), {
+        status: 401,
+        headers,
+      });
+    }
+
+    const result = await env.DB.prepare(
+      "SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = 0 AND is_archived = 0"
+    ).bind(userId).first<{ count: number }>();
+
+    return new Response(JSON.stringify({ 
+      success: true, 
+      unreadCount: result?.count || 0
+    }), {
       status: 200,
       headers,
     });

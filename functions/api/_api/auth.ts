@@ -1,6 +1,6 @@
 import type { Env } from "../[[route]]";
 import { verifyPassword, hashPassword, generateRecoveryCode } from "./setup";
-import { signJWT, verifyJWT, getJwtSecret, serializeCookie, parseCookies } from "../_utils/jwt";
+import { signJWT, verifyJWT, getJwtSecret, serializeCookie, parseCookies, getCookieOptions } from "../_utils/jwt";
 import { sendMail, getSmtpSettings } from "../_utils/smtp";
 import { logAudit } from "../_utils/audit";
 
@@ -136,13 +136,11 @@ export async function handleLogin(request: Request, env: Env): Promise<Response>
       secret
     );
 
-    const cookieValue = serializeCookie("refresh_token", refreshToken, {
-      maxAge: 30 * 24 * 3600,
-      path: "/api/auth",
-      httpOnly: true,
-      secure: true,
-      sameSite: "Lax",
-    });
+    const cookieValue = serializeCookie(
+      "refresh_token",
+      refreshToken,
+      getCookieOptions(request, env, 30 * 24 * 3600)
+    );
 
     const responseHeaders = new Headers(headers);
     responseHeaders.append("Set-Cookie", cookieValue);
@@ -348,13 +346,11 @@ export async function handleRefresh(request: Request, env: Env): Promise<Respons
       secret
     );
 
-    const cookieValue = serializeCookie("refresh_token", newRefreshToken, {
-      maxAge: 30 * 24 * 3600,
-      path: "/api/auth",
-      httpOnly: true,
-      secure: true,
-      sameSite: "Lax",
-    });
+    const cookieValue = serializeCookie(
+      "refresh_token",
+      newRefreshToken,
+      getCookieOptions(request, env, 30 * 24 * 3600)
+    );
 
     const responseHeaders = new Headers(headers);
     responseHeaders.append("Set-Cookie", cookieValue);
@@ -397,13 +393,11 @@ export async function handleLogout(request: Request, env: Env): Promise<Response
     return new Response(null, { status: 204, headers });
   }
 
-  const cookieValue = serializeCookie("refresh_token", "", {
-    maxAge: 0,
-    path: "/api/auth",
-    httpOnly: true,
-    secure: true,
-    sameSite: "Lax",
-  });
+  const cookieValue = serializeCookie(
+    "refresh_token",
+    "",
+    getCookieOptions(request, env, 0)
+  );
 
   const responseHeaders = new Headers(headers);
   responseHeaders.append("Set-Cookie", cookieValue);
@@ -513,13 +507,11 @@ export async function handleVerifyMfa(request: Request, env: Env): Promise<Respo
       secret
     );
 
-    const cookieValue = serializeCookie("refresh_token", refreshToken, {
-      maxAge: 30 * 24 * 3600,
-      path: "/api/auth",
-      httpOnly: true,
-      secure: true,
-      sameSite: "Lax",
-    });
+    const cookieValue = serializeCookie(
+      "refresh_token",
+      refreshToken,
+      getCookieOptions(request, env, 30 * 24 * 3600)
+    );
 
     const responseHeaders = new Headers(headers);
     responseHeaders.append("Set-Cookie", cookieValue);

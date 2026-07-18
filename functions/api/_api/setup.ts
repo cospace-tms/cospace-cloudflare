@@ -1,5 +1,5 @@
 import type { Env } from "../[[route]]";
-import { signJWT, generateRandomSecret, getJwtSecret, serializeCookie } from "../_utils/jwt";
+import { signJWT, generateRandomSecret, getJwtSecret, serializeCookie, getCookieOptions } from "../_utils/jwt";
 
 export function generateRecoveryCode(): string {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -10,6 +10,27 @@ export function generateRecoveryCode(): string {
     code += chars[randomIndex];
   }
   return code;
+}
+
+export function validatePasswordStrength(password: string): { valid: boolean; error?: string } {
+  if (password.length < 8) {
+    return { valid: false, error: "Password must be at least 8 characters long." };
+  }
+  
+  let typesCount = 0;
+  if (/[A-Z]/.test(password)) typesCount++;
+  if (/[a-z]/.test(password)) typesCount++;
+  if (/[0-9]/.test(password)) typesCount++;
+  if (/[^A-Za-z0-9]/.test(password)) typesCount++;
+
+  if (typesCount < 3) {
+    return { 
+      valid: false, 
+      error: "Password must contain at least 3 of the following categories: uppercase letters, lowercase letters, numbers, and special characters." 
+    };
+  }
+
+  return { valid: true };
 }
 
 export async function hashPassword(password: string): Promise<string> {
@@ -30,7 +51,7 @@ export async function hashPassword(password: string): Promise<string> {
     {
       name: "PBKDF2",
       salt: salt,
-      iterations: 100000,
+      iterations: 5000,
       hash: "SHA-256"
     },
     baseKey,
@@ -41,7 +62,7 @@ export async function hashPassword(password: string): Promise<string> {
   const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   const saltHex = Array.from(salt).map(b => b.toString(16).padStart(2, '0')).join('');
   
-  return `pbkdf2$100000$${saltHex}$${hashHex}`;
+  return `pbkdf2$5000$${saltHex}$${hashHex}`;
 }
 
 export async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
@@ -94,8 +115,7 @@ export async function verifyPassword(password: string, storedHash: string): Prom
 
 export async function handleSetupStatus(request: Request, env: Env): Promise<Response> {
   const headers = { 
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*"
+    "Content-Type": "application/json"
   };
 
   try {
@@ -132,8 +152,7 @@ export async function handleSetupStatus(request: Request, env: Env): Promise<Res
 
 export async function handleSetupRegister(request: Request, env: Env): Promise<Response> {
   const headers = { 
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*"
+    "Content-Type": "application/json"
   };
 
   try {
@@ -161,8 +180,9 @@ export async function handleSetupRegister(request: Request, env: Env): Promise<R
       });
     }
 
-    if (password.length < 8) {
-      return new Response(JSON.stringify({ error: "Password must be at least 8 characters long" }), {
+    const pwCheck = validatePasswordStrength(password);
+    if (!pwCheck.valid) {
+      return new Response(JSON.stringify({ error: pwCheck.error }), {
         status: 400,
         headers
       });
@@ -229,13 +249,11 @@ export async function handleSetupRegister(request: Request, env: Env): Promise<R
       secret
     );
 
-    const cookieValue = serializeCookie("refresh_token", refreshToken, {
-      maxAge: 30 * 24 * 3600,
-      path: "/api/auth",
-      httpOnly: true,
-      secure: true,
-      sameSite: "Lax",
-    });
+    const cookieValue = serializeCookie(
+      "refresh_token",
+      refreshToken,
+      getCookieOptions(request, env, 30 * 24 * 3600)
+    );
 
     const responseHeaders = new Headers(headers);
     responseHeaders.append("Set-Cookie", cookieValue);

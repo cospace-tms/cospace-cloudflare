@@ -557,6 +557,36 @@ export async function handleGetWorkspaceUserRole(request: Request, env: Env, wor
 // グループメンバー一覧取得 API
 export async function handleGetGroupMembers(request: Request, env: Env, groupId: string): Promise<Response> {
   try {
+    const userId = request.headers.get("X-User-Id");
+    if (!userId) {
+      return new Response(JSON.stringify({ error: "User unauthorized" }), {
+        status: 401,
+        headers,
+      });
+    }
+
+    const group = await env.DB.prepare(
+      "SELECT workspace_id FROM groups WHERE id = ?"
+    ).bind(groupId).first<{ workspace_id: string }>();
+
+    if (!group) {
+      return new Response(JSON.stringify({ error: "Group not found" }), {
+        status: 404,
+        headers,
+      });
+    }
+
+    const isMember = await env.DB.prepare(
+      "SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?"
+    ).bind(group.workspace_id, userId).first<{ role: string }>();
+
+    if (!isMember) {
+      return new Response(JSON.stringify({ error: "Permission denied" }), {
+        status: 403,
+        headers,
+      });
+    }
+
     const { results } = await env.DB.prepare(`
       SELECT 
         u.id as userId,
@@ -590,8 +620,80 @@ export async function handleGetGroupMembers(request: Request, env: Env, groupId:
 // グループメンバー追加 API
 export async function handleAddGroupMember(request: Request, env: Env, groupId: string): Promise<Response> {
   try {
+    const operatorId = request.headers.get("X-User-Id");
+    if (!operatorId) {
+      return new Response(JSON.stringify({ error: "User unauthorized" }), {
+        status: 401,
+        headers,
+      });
+    }
+
+    const group = await env.DB.prepare(
+      "SELECT workspace_id FROM groups WHERE id = ?"
+    ).bind(groupId).first<{ workspace_id: string }>();
+
+    if (!group) {
+      return new Response(JSON.stringify({ error: "Group not found" }), {
+        status: 404,
+        headers,
+      });
+    }
+
+    const operator = await env.DB.prepare(
+      "SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?"
+    ).bind(group.workspace_id, operatorId).first<{ role: string }>();
+
+    if (!operator) {
+      return new Response(JSON.stringify({ error: "Permission denied" }), {
+        status: 403,
+        headers,
+      });
+    }
+
+    const isOperatorOwner = operator.role === 'owner';
+    const isOperatorGroupAdmin = operator.role === 'group_admin';
+
+    if (!isOperatorOwner && !isOperatorGroupAdmin) {
+      return new Response(JSON.stringify({ error: "Permission denied" }), {
+        status: 403,
+        headers,
+      });
+    }
+
+    if (isOperatorGroupAdmin) {
+      const isLeader = await env.DB.prepare(
+        "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ? AND is_leader = 1"
+      ).bind(groupId, operatorId).first();
+
+      if (!isLeader) {
+        return new Response(JSON.stringify({ error: "Permission denied: Not a leader of this group" }), {
+          status: 403,
+          headers,
+        });
+      }
+    }
+
     const body: any = await request.json();
     const { userId, isLeader } = body;
+
+    if (!userId) {
+      return new Response(JSON.stringify({ error: "userId is required" }), {
+        status: 400,
+        headers,
+      });
+    }
+
+    // Verify target user is in the same workspace
+    const targetMember = await env.DB.prepare(
+      "SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ?"
+    ).bind(group.workspace_id, userId).first();
+
+    if (!targetMember) {
+      return new Response(JSON.stringify({ error: "Target user is not a member of this workspace" }), {
+        status: 400,
+        headers,
+      });
+    }
 
     if (!userId) {
       return new Response(JSON.stringify({ error: "userId is required" }), {
@@ -649,6 +751,59 @@ export async function handleAddGroupMember(request: Request, env: Env, groupId: 
 // グループメンバー更新 API
 export async function handleUpdateGroupMember(request: Request, env: Env, groupId: string, userId: string): Promise<Response> {
   try {
+    const operatorId = request.headers.get("X-User-Id");
+    if (!operatorId) {
+      return new Response(JSON.stringify({ error: "User unauthorized" }), {
+        status: 401,
+        headers,
+      });
+    }
+
+    const group = await env.DB.prepare(
+      "SELECT workspace_id FROM groups WHERE id = ?"
+    ).bind(groupId).first<{ workspace_id: string }>();
+
+    if (!group) {
+      return new Response(JSON.stringify({ error: "Group not found" }), {
+        status: 404,
+        headers,
+      });
+    }
+
+    const operator = await env.DB.prepare(
+      "SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?"
+    ).bind(group.workspace_id, operatorId).first<{ role: string }>();
+
+    if (!operator) {
+      return new Response(JSON.stringify({ error: "Permission denied" }), {
+        status: 403,
+        headers,
+      });
+    }
+
+    const isOperatorOwner = operator.role === 'owner';
+    const isOperatorGroupAdmin = operator.role === 'group_admin';
+
+    if (!isOperatorOwner && !isOperatorGroupAdmin) {
+      return new Response(JSON.stringify({ error: "Permission denied" }), {
+        status: 403,
+        headers,
+      });
+    }
+
+    if (isOperatorGroupAdmin) {
+      const isLeader = await env.DB.prepare(
+        "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ? AND is_leader = 1"
+      ).bind(groupId, operatorId).first();
+
+      if (!isLeader) {
+        return new Response(JSON.stringify({ error: "Permission denied: Not a leader of this group" }), {
+          status: 403,
+          headers,
+        });
+      }
+    }
+
     const body: any = await request.json();
     const { isLeader } = body;
 
@@ -673,6 +828,57 @@ export async function handleUpdateGroupMember(request: Request, env: Env, groupI
 // グループメンバー削除 API
 export async function handleDeleteGroupMember(request: Request, env: Env, groupId: string, userId: string): Promise<Response> {
   try {
+    const operatorId = request.headers.get("X-User-Id");
+    if (!operatorId) {
+      return new Response(JSON.stringify({ error: "User unauthorized" }), {
+        status: 401,
+        headers,
+      });
+    }
+
+    const group = await env.DB.prepare(
+      "SELECT workspace_id FROM groups WHERE id = ?"
+    ).bind(groupId).first<{ workspace_id: string }>();
+
+    if (!group) {
+      return new Response(JSON.stringify({ error: "Group not found" }), {
+        status: 404,
+        headers,
+      });
+    }
+
+    const operator = await env.DB.prepare(
+      "SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?"
+    ).bind(group.workspace_id, operatorId).first<{ role: string }>();
+
+    if (!operator) {
+      return new Response(JSON.stringify({ error: "Permission denied" }), {
+        status: 403,
+        headers,
+      });
+    }
+
+    const isOperatorOwner = operator.role === 'owner';
+    const isOperatorGroupAdmin = operator.role === 'group_admin';
+
+    if (!isOperatorOwner && !isOperatorGroupAdmin) {
+      return new Response(JSON.stringify({ error: "Permission denied" }), {
+        status: 403,
+        headers,
+      });
+    }
+
+    if (isOperatorGroupAdmin) {
+      const isLeader = await env.DB.prepare(
+        "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ? AND is_leader = 1"
+      ).bind(groupId, operatorId).first();
+
+      if (!isLeader) {
+        return new Response(JSON.stringify({ error: "Permission denied: Not a leader of this group" }), {
+          status: 403,
+          headers,
+        });
+    }
     await env.DB.prepare(
       "DELETE FROM group_members WHERE group_id = ? AND user_id = ?"
     ).bind(groupId, userId).run();

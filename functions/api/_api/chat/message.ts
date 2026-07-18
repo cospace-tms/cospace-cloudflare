@@ -2,6 +2,7 @@ import type { Env } from "../../[[route]]";
 import { linkFileToMessage } from "../files";
 import { sendWebPush } from "../../_utils/webpush";
 import { sendMail, getSmtpSettings } from "../../_utils/smtp";
+import { checkWorkspaceLimit } from "../../_utils/saas";
 
 const headers = {
   "Content-Type": "application/json",
@@ -43,8 +44,13 @@ export async function canAccessChannel(env: Env, channelId: string, userId: stri
 
     if (!channel) return false;
 
-    // パブリックチャンネルなら全員OK
-    if ((channel.type === 'channel' || !channel.type) && channel.isPrivate === 0) return true;
+    // パブリックチャンネルなら、そのワークスペースのメンバーであればOK
+    if ((channel.type === 'channel' || !channel.type) && channel.isPrivate === 0) {
+      const isWorkspaceMember = await env.DB.prepare(
+        "SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ?"
+      ).bind(channel.workspaceId, userId).first();
+      return !!isWorkspaceMember;
+    }
 
     // 自分が明示的に channel_members にいるならOK
     const isMember = await env.DB.prepare(
@@ -399,6 +405,8 @@ export async function handleGetMessages(request: Request, env: Env, channelId: s
   try {
     const url = new URL(request.url);
     const since = url.searchParams.get("since");
+    const before = url.searchParams.get("before");
+    const limit = parseInt(url.searchParams.get("limit") || "50", 10);
     const userId = request.headers.get("X-User-Id");
 
     if (!userId) {
@@ -467,24 +475,37 @@ export async function handleGetMessages(request: Request, env: Env, channelId: s
 
     const params: any[] = [channelId];
 
-    if (days > 0) {
-      const limitDate = new Date();
-      limitDate.setDate(limitDate.getDate() - days);
-      const limitIso = limitDate.toISOString();
-      query += " AND m.created_at >= ?";
-      params.push(limitIso);
-    }
-
+    // クエリの最後に付与する順序とリミットの決定
     if (since) {
+      if (days > 0) {
+        const limitDate = new Date();
+        limitDate.setDate(limitDate.getDate() - days);
+        const limitIso = limitDate.toISOString();
+        query += " AND m.created_at >= ?";
+        params.push(limitIso);
+      }
       query += " AND m.created_at > ?";
       params.push(since);
+      query += " ORDER BY m.created_at ASC";
+    } else {
+      if (days > 0) {
+        const limitDate = new Date();
+        limitDate.setDate(limitDate.getDate() - days);
+        const limitIso = limitDate.toISOString();
+        query += " AND m.created_at >= ?";
+        params.push(limitIso);
+      }
+      if (before) {
+        query += " AND m.created_at < ?";
+        params.push(before);
+      }
+      query += " ORDER BY m.created_at DESC LIMIT ?";
+      params.push(limit);
     }
-
-    query += " ORDER BY m.created_at ASC";
 
     const { results } = await env.DB.prepare(query).bind(...params).all<any>();
 
-    const data = results.map((row: any) => ({
+    let data = results.map((row: any) => ({
       id: row.id,
       channelId: row.channelId,
       userId: row.userId,
@@ -509,6 +530,11 @@ export async function handleGetMessages(request: Request, env: Env, channelId: s
       reactions: row.reactionsJson ? JSON.parse(row.reactionsJson) : [],
       isPinned: row.isPinned === 1,
     }));
+
+    // DESC（新しい順）で取得した場合は、古い順（ASC）に並び替えてクライアントに返す
+    if (!since) {
+      data = data.reverse();
+    }
 
     return new Response(JSON.stringify({ success: true, data }), {
       status: 200,
@@ -546,8 +572,72 @@ export async function handleCreateMessage(request: Request, env: Env, channelId:
     const body: any = await request.json();
     const { content, parentId, fileUrl, fileName, fileSize } = body;
 
+    // チャンネル情報を取得
+    const channel = await env.DB.prepare(
+      "SELECT workspace_id as workspaceId, type FROM channels WHERE id = ?"
+    ).bind(channelId).first<{ workspaceId: string; type: string }>();
+
+    if (!channel) {
+      return new Response(JSON.stringify({ error: "Channel not found" }), {
+        status: 404,
+        headers,
+      });
+    }
+
+    // 1. DM制限チェック
+    if (channel.type === "dm") {
+      const dmLimit = await checkWorkspaceLimit(env, channel.workspaceId, "dm");
+      if (!dmLimit.allowed) {
+        return new Response(JSON.stringify({ error: dmLimit.message }), {
+          status: 403,
+          headers,
+        });
+      }
+    }
+
+    // 2. メディア（添付ファイル）制限およびストレージ制限チェック
+    if (fileUrl) {
+      const mediaLimit = await checkWorkspaceLimit(env, channel.workspaceId, "media");
+      if (!mediaLimit.allowed) {
+        return new Response(JSON.stringify({ error: mediaLimit.message }), {
+          status: 403,
+          headers,
+        });
+      }
+
+      // ファイル拡張子制限チェック
+      if (fileName) {
+        const fileExtension = fileName.substring(fileName.lastIndexOf(".")).toLowerCase();
+        const extLimit = await checkWorkspaceLimit(env, channel.workspaceId, "media", 1, { fileExtension });
+        if (!extLimit.allowed) {
+          return new Response(JSON.stringify({ error: extLimit.message }), {
+            status: 403,
+            headers,
+          });
+        }
+      }
+
+      // ストレージ容量制限チェック
+      if (fileSize) {
+        const storageLimit = await checkWorkspaceLimit(env, channel.workspaceId, "storage", fileSize);
+        if (!storageLimit.allowed) {
+          return new Response(JSON.stringify({ error: storageLimit.message }), {
+            status: 403,
+            headers,
+          });
+        }
+      }
+    }
+
     if (!content) {
       return new Response(JSON.stringify({ error: "Message content is required" }), {
+        status: 400,
+        headers,
+      });
+    }
+
+    if (content.length > 5000) {
+      return new Response(JSON.stringify({ error: "Message content cannot exceed 5000 characters" }), {
         status: 400,
         headers,
       });
@@ -759,6 +849,13 @@ export async function handleCreateMessageGeneral(request: Request, env: Env): Pr
       });
     }
 
+    if (content.length > 5000) {
+      return new Response(JSON.stringify({ error: "Message content cannot exceed 5000 characters" }), {
+        status: 400,
+        headers,
+      });
+    }
+
     if (!userId) {
       return new Response(JSON.stringify({ error: "User unauthorized" }), {
         status: 401,
@@ -773,6 +870,63 @@ export async function handleCreateMessageGeneral(request: Request, env: Env): Pr
         status: 403,
         headers,
       });
+    }
+
+    // チャンネル情報を取得
+    const channel = await env.DB.prepare(
+      "SELECT workspace_id as workspaceId, type FROM channels WHERE id = ?"
+    ).bind(channelId).first<{ workspaceId: string; type: string }>();
+
+    if (!channel) {
+      return new Response(JSON.stringify({ error: "Channel not found" }), {
+        status: 404,
+        headers,
+      });
+    }
+
+    // 1. DM制限チェック
+    if (channel.type === "dm") {
+      const dmLimit = await checkWorkspaceLimit(env, channel.workspaceId, "dm");
+      if (!dmLimit.allowed) {
+        return new Response(JSON.stringify({ error: dmLimit.message }), {
+          status: 403,
+          headers,
+        });
+      }
+    }
+
+    // 2. メディア（添付ファイル）制限およびストレージ制限チェック
+    if (fileUrl) {
+      const mediaLimit = await checkWorkspaceLimit(env, channel.workspaceId, "media");
+      if (!mediaLimit.allowed) {
+        return new Response(JSON.stringify({ error: mediaLimit.message }), {
+          status: 403,
+          headers,
+        });
+      }
+
+      // ファイル拡張子制限チェック
+      if (fileName) {
+        const fileExtension = fileName.substring(fileName.lastIndexOf(".")).toLowerCase();
+        const extLimit = await checkWorkspaceLimit(env, channel.workspaceId, "media", 1, { fileExtension });
+        if (!extLimit.allowed) {
+          return new Response(JSON.stringify({ error: extLimit.message }), {
+            status: 403,
+            headers,
+          });
+        }
+      }
+
+      // ストレージ容量制限チェック
+      if (fileSize) {
+        const storageLimit = await checkWorkspaceLimit(env, channel.workspaceId, "storage", fileSize);
+        if (!storageLimit.allowed) {
+          return new Response(JSON.stringify({ error: storageLimit.message }), {
+            status: 403,
+            headers,
+          });
+        }
+      }
     }
 
     const sanitizedContent = escapeHtml(content);

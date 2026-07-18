@@ -2,6 +2,13 @@ import { connect } from "cloudflare:sockets";
 import { getJwtSecret } from "./jwt";
 import type { Env } from "../[[route]]";
 
+export async function getEncryptionSecret(env: Env): Promise<string> {
+  if (env.ENCRYPTION_SECRET) {
+    return env.ENCRYPTION_SECRET;
+  }
+  return await getJwtSecret(env);
+}
+
 export interface SmtpSettings {
   host: string;
   port: number;
@@ -91,8 +98,8 @@ export async function getSmtpSettings(env: Env): Promise<SmtpSettings | null> {
       return null;
     }
 
-    const jwtSecret = await getJwtSecret(env);
-    const decryptedJson = await decryptText(result.value, jwtSecret);
+    const secret = await getEncryptionSecret(env);
+    const decryptedJson = await decryptText(result.value, secret);
     return JSON.parse(decryptedJson) as SmtpSettings;
   } catch (e) {
     console.error("Failed to retrieve or decrypt SMTP settings:", e);
@@ -102,8 +109,8 @@ export async function getSmtpSettings(env: Env): Promise<SmtpSettings | null> {
 
 // SMTP設定を暗号化してデータベースに保存する
 export async function saveSmtpSettings(env: Env, settings: SmtpSettings): Promise<void> {
-  const jwtSecret = await getJwtSecret(env);
-  const encryptedJson = await encryptText(JSON.stringify(settings), jwtSecret);
+  const secret = await getEncryptionSecret(env);
+  const encryptedJson = await encryptText(JSON.stringify(settings), secret);
 
   await env.DB.prepare(
     "INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))"

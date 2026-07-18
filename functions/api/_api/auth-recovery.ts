@@ -1,16 +1,11 @@
 import type { Env } from "../[[route]]";
-import { hashPassword, verifyPassword } from "./setup";
-import { signJWT, generateRandomSecret, getJwtSecret, serializeCookie } from "../_utils/jwt";
+import { hashPassword, verifyPassword, validatePasswordStrength } from "./setup";
+import { signJWT, generateRandomSecret, getJwtSecret, serializeCookie, getCookieOptions } from "../_utils/jwt";
 import { sendMail, getSmtpSettings, saveSmtpSettings, deleteSmtpSettings, type SmtpSettings } from "../_utils/smtp";
 
 function getHeaders(request: Request) {
-  const origin = request.headers.get("Origin") || "*";
   return {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Credentials": "true",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-User-Id, X-Workspace-Id",
-    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
   };
 }
 
@@ -67,8 +62,9 @@ export async function handleRecovery(request: Request, env: Env): Promise<Respon
       });
     }
 
-    if (newPassword.length < 8) {
-      return new Response(JSON.stringify({ error: "Password must be at least 8 characters long" }), {
+    const pwCheck = validatePasswordStrength(newPassword);
+    if (!pwCheck.valid) {
+      return new Response(JSON.stringify({ error: pwCheck.error }), {
         status: 400,
         headers,
       });
@@ -95,9 +91,9 @@ export async function handleRecovery(request: Request, env: Env): Promise<Respon
       });
     }
 
-    // 新パスワードをハッシュ化して保存
+    // 新パスワードをハッシュ化して保存し、リカバリーコードをクリア
     const newPasswordHash = await hashPassword(newPassword);
-    await env.DB.prepare("UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?")
+    await env.DB.prepare("UPDATE users SET password_hash = ?, recovery_code_hash = NULL, updated_at = datetime('now') WHERE id = ?")
       .bind(newPasswordHash, user.id)
       .run();
 
@@ -148,13 +144,11 @@ export async function handleRecovery(request: Request, env: Env): Promise<Respon
       secret
     );
 
-    const cookieValue = serializeCookie("refresh_token", refreshToken, {
-      maxAge: 30 * 24 * 3600,
-      path: "/api/auth",
-      httpOnly: true,
-      secure: true,
-      sameSite: "Lax",
-    });
+    const cookieValue = serializeCookie(
+      "refresh_token",
+      refreshToken,
+      getCookieOptions(request, env, 30 * 24 * 3600)
+    );
 
     const responseHeaders = new Headers(headers);
     responseHeaders.append("Set-Cookie", cookieValue);

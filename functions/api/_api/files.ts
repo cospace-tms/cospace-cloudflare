@@ -26,7 +26,6 @@ function getS3Client(env: Env): S3Client {
 export async function handleGetPresignedUploadUrl(request: Request, env: Env): Promise<Response> {
   const headers = {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
   };
 
   try {
@@ -73,7 +72,6 @@ export async function handleGetPresignedUploadUrl(request: Request, env: Env): P
 export async function handleGetPresignedDownloadUrl(request: Request, env: Env): Promise<Response> {
   const headers = {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
   };
 
   try {
@@ -203,7 +201,6 @@ export async function handleGetPresignedDownloadUrl(request: Request, env: Env):
 export async function handleDirectUpload(request: Request, env: Env): Promise<Response> {
   const headers = {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
   };
 
   try {
@@ -428,7 +425,7 @@ export async function handleDirectDownload(request: Request, env: Env): Promise<
     const responseHeaders = new Headers();
     object.writeHttpMetadata(responseHeaders);
     responseHeaders.set("etag", object.httpEtag);
-    responseHeaders.set("Access-Control-Allow-Origin", "*");
+
 
     return new Response(object.body, {
       headers: responseHeaders,
@@ -441,7 +438,6 @@ export async function handleDirectDownload(request: Request, env: Env): Promise<
 export async function handleGetMediaLibrary(request: Request, env: Env): Promise<Response> {
   const headers = {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
   };
 
   try {
@@ -595,7 +591,6 @@ export async function handleGetMediaLibrary(request: Request, env: Env): Promise
 export async function handleDeleteFile(request: Request, env: Env): Promise<Response> {
   const headers = {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
   };
 
   try {

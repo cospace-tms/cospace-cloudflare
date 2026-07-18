@@ -45,7 +45,7 @@ export {
 } from "./files";
 
 // Notifications
-export { handleGetNotifications, handleReadNotification, handleReadAllNotifications, handleArchiveNotification } from "./notifications";
+export { handleGetNotifications, handleReadNotification, handleReadAllNotifications, handleArchiveNotification, handleGetUnreadNotificationsCount } from "./notifications";
 
 // Documents
 export { handleGetWorkspaceDocument, handleUpdateWorkspaceDocument, handleGetChannelDocument, handleUpdateChannelDocument } from "./document";

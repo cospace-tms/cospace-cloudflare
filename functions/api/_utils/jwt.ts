@@ -180,3 +180,35 @@ export function serializeCookie(
   return parts.join("; ");
 }
 
+// リクエスト環境に応じてSameSite/Secureを動的に最適化するオプションビルダー
+export function getCookieOptions(
+  request: Request,
+  env: Env,
+  maxAgeSeconds: number,
+  path: string = "/api/auth"
+) {
+  const url = new URL(request.url);
+  const isHttps = url.protocol === "https:" || request.headers.get("X-Forwarded-Proto") === "https";
+  
+  const origin = request.headers.get("Origin");
+  let isCrossDomain = false;
+  if (origin && env.ALLOWED_ORIGINS) {
+    const allowed = env.ALLOWED_ORIGINS.split(",").map((o: string) => o.trim());
+    if (allowed.includes(origin)) {
+      isCrossDomain = true;
+    }
+  }
+
+  // HTTPS環境かつCORSクロスドメイン通信の場合のみ SameSite=None を設定（Secureも必須）
+  const sameSite = (isHttps && isCrossDomain) ? "None" : "Lax";
+  const secure = isHttps;
+
+  return {
+    maxAge: maxAgeSeconds,
+    path,
+    httpOnly: true,
+    secure,
+    sameSite: sameSite as "Lax" | "None" | "Strict",
+  };
+}
+
