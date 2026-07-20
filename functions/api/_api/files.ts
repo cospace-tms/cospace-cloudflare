@@ -576,10 +576,14 @@ export async function handleGetMediaLibrary(request: Request, env: Env): Promise
         query += ` AND f.content_type LIKE 'image/%'`;
       } else if (fileType === "video") {
         query += ` AND f.content_type LIKE 'video/%'`;
+      } else if (fileType === "audio") {
+        query += ` AND f.content_type LIKE 'audio/%'`;
       } else if (fileType === "document") {
-        query += ` AND (f.content_type LIKE 'application/pdf' OR f.content_type LIKE 'text/%' OR f.content_type LIKE '%word%' OR f.content_type LIKE '%excel%' OR f.content_type LIKE '%powerpoint%')`;
-      } else {
-        query += ` AND NOT (f.content_type LIKE 'image/%' OR f.content_type LIKE 'video/%' OR f.content_type LIKE 'application/pdf' OR f.content_type LIKE 'text/%')`;
+        query += ` AND (f.content_type LIKE 'application/pdf' OR f.content_type LIKE 'text/%' OR f.content_type LIKE '%word%' OR f.content_type LIKE '%excel%' OR f.content_type LIKE '%powerpoint%' OR f.content_type LIKE '%officedocument%')`;
+      } else if (fileType === "archive") {
+        query += ` AND (f.content_type LIKE '%zip%' OR f.content_type LIKE '%rar%' OR f.content_type LIKE '%tar%' OR f.content_type LIKE '%compressed%' OR f.content_type LIKE '%archive%' OR f.content_type LIKE '%7z%')`;
+      } else if (fileType === "other") {
+        query += ` AND NOT (f.content_type LIKE 'image/%' OR f.content_type LIKE 'video/%' OR f.content_type LIKE 'audio/%' OR f.content_type LIKE 'application/pdf' OR f.content_type LIKE 'text/%' OR f.content_type LIKE '%word%' OR f.content_type LIKE '%excel%' OR f.content_type LIKE '%powerpoint%' OR f.content_type LIKE '%officedocument%' OR f.content_type LIKE '%zip%' OR f.content_type LIKE '%rar%' OR f.content_type LIKE '%tar%' OR f.content_type LIKE '%compressed%' OR f.content_type LIKE '%archive%' OR f.content_type LIKE '%7z%')`;
       }
     }
 

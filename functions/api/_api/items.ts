@@ -405,7 +405,7 @@ export async function handleCreateItem(request: Request, env: Env, workspaceId: 
     const insertItem = env.DB.prepare(`
       INSERT INTO items (
         id, workspace_id, creator_id, title, description, status, priority, tags, start_at, end_at, is_all_day, is_private, assigned_group_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       itemId,
       workspaceId,

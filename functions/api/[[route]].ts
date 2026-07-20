@@ -148,6 +148,16 @@ async function runMigrations(env: Env) {
     }
   }
 
+  // items テーブルへの assigned_group_id カラム自動追加
+  try {
+    await env.DB.prepare("SELECT assigned_group_id FROM items LIMIT 1").all();
+  } catch (colErr: any) {
+    if (colErr.message && (colErr.message.includes("no such column") || colErr.message.includes("has no column"))) {
+      console.log("Database Migration: Adding assigned_group_id column to items table...");
+      await env.DB.prepare("ALTER TABLE items ADD COLUMN assigned_group_id TEXT REFERENCES groups(id) ON DELETE SET NULL").run();
+    }
+  }
+
   // 2. system_settings テーブルが存在するか確認、なければ作成
   try {
     await env.DB.prepare("SELECT 1 FROM system_settings LIMIT 1").all();
