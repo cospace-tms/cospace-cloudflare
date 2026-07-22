@@ -98,6 +98,19 @@ Add an extra layer of protection by placing Cloudflare Access in front of your d
 
 ---
 
+## ⚙️ Environment Variables
+
+| Variable | Required | Description |
+| :--- | :--- | :--- |
+| `ALLOWED_ORIGINS` | Optional | Comma-separated list of allowed CORS origins (e.g., `https://cohive.dev,https://app.cohive.dev`). |
+| `JWT_SECRET` | Optional | Custom secret key for signing JWT tokens. Auto-generated and stored in D1 database on setup if omitted. |
+| `ENCRYPTION_SECRET` | Optional | 32-byte secret used to encrypt sensitive configuration (e.g., SMTP passwords) in D1. Falls back to JWT_SECRET if omitted. |
+| `R2_ACCESS_KEY_ID` | Optional | Cloudflare R2 Access Key ID (required for generating S3 presigned URLs). |
+| `R2_SECRET_ACCESS_KEY` | Optional | Cloudflare R2 Secret Access Key. |
+| `R2_ACCOUNT_ID` | Optional | Cloudflare Account ID for R2 endpoints. |
+
+---
+
 ## 💻 Local Development Guide
 
 Steps for local development and testing:
@@ -107,7 +120,13 @@ Steps for local development and testing:
 npm install
 ```
 
-### 2. Run Local Servers
+### 2. Configure Local Settings
+Copy `wrangler.example.toml` to `wrangler.toml` and fill in your Cloudflare resource IDs:
+```bash
+cp wrangler.example.toml wrangler.toml
+```
+
+### 3. Run Local Servers
 Start both Vite frontend server and Pages Functions API server:
 
 **Terminal 1 (API Server):**

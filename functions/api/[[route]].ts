@@ -641,10 +641,6 @@ async function handleApiRequests(context: EventContext<Env, any, any>, origin: s
     }
   }
 
-  // クエリパラメータからのフォールバック user_id (直リンク用)
-  if (!authenticatedUserId) {
-    authenticatedUserId = url.searchParams.get("userId") || url.searchParams.get("user_id");
-  }
 
   if (isApiRoute && !isPublicRoute && !authenticatedUserId) {
     return new Response(JSON.stringify({ error: "Authorization token required" }), {

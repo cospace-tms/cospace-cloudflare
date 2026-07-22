@@ -103,6 +103,19 @@ Cloudflareの強力なサーバーレスエコシステム（Pages, Workers, D1,
 
 ---
 
+## ⚙️ 環境変数一覧 (Environment Variables)
+
+| 環境変数名 | 必須度 | 説明 |
+| :--- | :--- | :--- |
+| `ALLOWED_ORIGINS` | 任意 | CORS接続を許可するオリジンURLリスト（カンマ区切り。例: `https://cohive.dev,https://app.cohive.dev`）。 |
+| `JWT_SECRET` | 任意 | JWTトークンの署名に使用する秘密鍵。未指定の場合は、初回セットアップ時に暗号論的に安全なランダムキーが自動生成されD1に保存されます。 |
+| `ENCRYPTION_SECRET` | 任意 | D1内の感性設定（SMTPパスワード等）のAES-GCM暗号化用32バイトシークレット。未指定時はJWT_SECRETが流用されます。 |
+| `R2_ACCESS_KEY_ID` | 任意 | R2ストレージのアクセスキーID（S3署名付きURL生成機能を使用する場合に指定）。 |
+| `R2_SECRET_ACCESS_KEY` | 任意 | R2ストレージのシークレットアクセスキー。 |
+| `R2_ACCOUNT_ID` | 任意 | CloudflareアカウントID。 |
+
+---
+
 ## 💻 ローカル開発方法
 
 ローカルで動作確認および開発を行うための手順です。
@@ -114,7 +127,13 @@ Cloudflareの強力なサーバーレスエコシステム（Pages, Workers, D1,
 npm install
 ```
 
-### 2. ローカル開発サーバーの起動
+### 2. ローカル設定ファイルの作成
+`wrangler.example.toml` をコピーして `wrangler.toml` を作成し、自身の Cloudflare リソース ID 等を設定します。
+```bash
+cp wrangler.example.toml wrangler.toml
+```
+
+### 3. ローカル開発サーバーの起動
 Vite 開発サーバーと Cloudflare Pages Functions (Wrangler) の両方を起動します。
 
 **ターミナル 1 (Pages Functions API サーバーの起動):**

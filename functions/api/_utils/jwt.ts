@@ -138,8 +138,10 @@ export async function getJwtSecret(env: Env): Promise<string> {
     console.error("Failed to read jwt_secret from D1 Database. Settings table might not be initialized yet.", e);
   }
 
-  // 3. 初期セットアップ前などで値が存在しない場合は、一時的にプレースホルダーを返す
-  return "YOUR_JWT_SECRET_PLACEHOLDER";
+  // 3. 初期セットアップ前などで値が存在しない場合は、一回限りのランダムシークレットを動的生成（固定キーによる署名偽造を防止）
+  console.warn("jwt_secret not found in DB. Generating transient random secret for session.");
+  cachedJwtSecret = generateRandomSecret();
+  return cachedJwtSecret;
 }
 
 // Cookieのパースヘルパー
@@ -149,9 +151,13 @@ export function parseCookies(request: Request): Record<string, string> {
   if (!cookieHeader) return cookies;
 
   cookieHeader.split(";").forEach(cookie => {
-    const parts = cookie.split("=");
-    if (parts.length === 2) {
-      cookies[parts[0].trim()] = decodeURIComponent(parts[1].trim());
+    const eqIdx = cookie.indexOf("=");
+    if (eqIdx !== -1) {
+      const key = cookie.substring(0, eqIdx).trim();
+      const val = cookie.substring(eqIdx + 1).trim();
+      if (key) {
+        cookies[key] = decodeURIComponent(val);
+      }
     }
   });
   return cookies;

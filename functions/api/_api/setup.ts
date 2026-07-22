@@ -47,11 +47,12 @@ export async function hashPassword(password: string): Promise<string> {
     ["deriveBits", "deriveKey"]
   );
   
+  const iterations = 600000;
   const derivedBits = await crypto.subtle.deriveBits(
     {
       name: "PBKDF2",
       salt: salt,
-      iterations: 5000,
+      iterations: iterations,
       hash: "SHA-256"
     },
     baseKey,
@@ -62,7 +63,18 @@ export async function hashPassword(password: string): Promise<string> {
   const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   const saltHex = Array.from(salt).map(b => b.toString(16).padStart(2, '0')).join('');
   
-  return `pbkdf2$5000$${saltHex}$${hashHex}`;
+  return `pbkdf2$${iterations}$${saltHex}$${hashHex}`;
+}
+
+function timingSafeEqualStr(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
 }
 
 export async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
@@ -106,7 +118,7 @@ export async function verifyPassword(password: string, storedHash: string): Prom
     const hashArray = Array.from(new Uint8Array(derivedBits));
     const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     
-    return hashHex === originalHashHex;
+    return timingSafeEqualStr(hashHex, originalHashHex);
   } catch (error) {
     console.error("Password verification error:", error);
     return false;

@@ -310,7 +310,7 @@ export async function handleDirectUpload(request: Request, env: Env): Promise<Re
 export async function handleDirectDownload(request: Request, env: Env): Promise<Response> {
   try {
     const url = new URL(request.url);
-    let userId = request.headers.get("X-User-Id") || url.searchParams.get("userId") || url.searchParams.get("user_id");
+    let userId = request.headers.get("X-User-Id");
     if (!userId) {
       return new Response("Unauthorized", { status: 401 });
     }
