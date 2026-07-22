@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS users (
     avatar_url TEXT,
     language TEXT DEFAULT 'ja',
     last_active_at DATETIME,
+    tokens_valid_after DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

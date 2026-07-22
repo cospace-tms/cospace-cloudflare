@@ -42,8 +42,12 @@ function base64urlToArrayBuffer(str: string): ArrayBuffer {
 // JWTの作成 (Sign)
 export async function signJWT(payload: any, secret: string): Promise<string> {
   const header = { alg: "HS256", typ: "JWT" };
+  const fullPayload = {
+    iat: Math.floor(Date.now() / 1000),
+    ...payload,
+  };
   const encodedHeader = base64urlEncode(JSON.stringify(header));
-  const encodedPayload = base64urlEncode(JSON.stringify(payload));
+  const encodedPayload = base64urlEncode(JSON.stringify(fullPayload));
   
   const tokenToSign = `${encodedHeader}.${encodedPayload}`;
   

@@ -37,7 +37,25 @@ export async function handleUploadAvatar(request: Request, env: Env): Promise<Re
       });
     }
 
-    const ext = file.name.includes(".") ? `.${file.name.split(".").pop()}` : ".png";
+    const ext = file.name.includes(".") ? `.${file.name.split(".").pop()?.toLowerCase()}` : ".png";
+    
+    // 5MB 上限チェック
+    if (file.size > 5 * 1024 * 1024) {
+      return new Response(JSON.stringify({ error: "Avatar image size must be less than 5MB" }), {
+        status: 400,
+        headers,
+      });
+    }
+
+    // 画像ファイルチェック
+    const isImage = file.type.startsWith("image/") || [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"].includes(ext);
+    if (!isImage) {
+      return new Response(JSON.stringify({ error: "Only image files are allowed for avatars" }), {
+        status: 400,
+        headers,
+      });
+    }
+
     const filename = `${userId}-${Date.now()}${ext}`;
     const objectKey = `avatars/${filename}`;
 

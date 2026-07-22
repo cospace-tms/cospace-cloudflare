@@ -148,6 +148,15 @@ async function runMigrations(env: Env) {
     }
   }
 
+  try {
+    await env.DB.prepare("SELECT tokens_valid_after FROM users LIMIT 1").all();
+  } catch (colErr: any) {
+    if (colErr.message && (colErr.message.includes("no such column") || colErr.message.includes("has no column"))) {
+      console.log("Database Migration: Adding tokens_valid_after column to users table...");
+      await env.DB.prepare("ALTER TABLE users ADD COLUMN tokens_valid_after DATETIME").run();
+    }
+  }
+
   // items テーブルへの assigned_group_id カラム自動追加
   try {
     await env.DB.prepare("SELECT assigned_group_id FROM items LIMIT 1").all();
@@ -530,7 +539,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   }
 
   const requestOrigin = request.headers.get("Origin");
-  let origin = "*";
+  const requestUrl = new URL(request.url);
+  const selfOrigin = requestUrl.origin;
+  let origin = selfOrigin;
 
   if (requestOrigin) {
     if (env.ALLOWED_ORIGINS) {
@@ -543,7 +554,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         origin = "null";
       }
     } else {
-      origin = requestOrigin;
+      // ワンクリックデプロイ（ゼロコンフィグ）対応:
+      // ALLOWED_ORIGINS未設定時は、自サイトOriginまたはローカル開発環境Originのみを自動許可
+      if (requestOrigin === selfOrigin || requestOrigin.includes("localhost") || requestOrigin.includes("127.0.0.1")) {
+        origin = requestOrigin;
+      } else {
+        origin = "null";
+      }
     }
   }
 
@@ -558,6 +575,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         "Access-Control-Allow-Headers": "Content-Type, X-Workspace-Id, X-User-Id, Authorization",
         "Access-Control-Allow-Credentials": "true",
         "Access-Control-Max-Age": "86400",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-XSS-Protection": "1; mode=block",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
       },
     });
   }
@@ -566,8 +588,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   try {
     response = await handleApiRequests(context, origin);
   } catch (error: any) {
+    console.error("Unhandled API Exception:", error);
     response = new Response(
-      JSON.stringify({ error: error.message || "Internal Server Error" }),
+      JSON.stringify({ error: "Internal Server Error" }),
       {
         status: 500,
         headers: {
@@ -583,6 +606,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   responseHeaders.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
   responseHeaders.set("Access-Control-Allow-Headers", "Content-Type, X-Workspace-Id, X-User-Id, Authorization");
 
+  // HTTP セキュリティヘッダーの全自動付与
+  responseHeaders.set("X-Content-Type-Options", "nosniff");
+  responseHeaders.set("X-Frame-Options", "DENY");
+  responseHeaders.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  responseHeaders.set("X-XSS-Protection", "1; mode=block");
+  responseHeaders.set("Referrer-Policy", "strict-origin-when-cross-origin");
+
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -596,12 +626,17 @@ async function handleApiRequests(context: EventContext<Env, any, any>, origin: s
   const url = new URL(request.url);
   const method = request.method;
 
-  // レートリミットの適用（ログイン・リカバリー、高負荷・書き込み系APIが対象）
-  const isAuthPost = (url.pathname === "/api/auth/login" || url.pathname === "/api/auth/recovery") && method === "POST";
+  // レートリミットの適用（ログイン・リカバリー・新規登録・パスワード変更、高負荷・書き込み系APIが対象）
+  const isAuthRateLimited = (
+    url.pathname === "/api/auth/login" ||
+    url.pathname === "/api/auth/recovery" ||
+    url.pathname === "/api/auth/register" ||
+    url.pathname === "/api/auth/change-password"
+  ) && method === "POST";
   const isMessagePost = (url.pathname.match(/^\/api\/channels\/([^\/]+)\/messages$/) || url.pathname === "/api/messages") && method === "POST";
   const isSearchGet = url.pathname.includes("/search") && method === "GET";
 
-  if (isAuthPost || isMessagePost || isSearchGet) {
+  if (isAuthRateLimited || isMessagePost || isSearchGet) {
     const ip = request.headers.get("CF-Connecting-IP") || "unknown";
     try {
       const { success } = await env.RATE_LIMITER.limit({ key: ip });
@@ -657,7 +692,25 @@ async function handleApiRequests(context: EventContext<Env, any, any>, origin: s
   if (token) {
     const payload = await verifyJWT(token, jwtSecret);
     if (payload && payload.type === "access" && payload.userId) {
-      authenticatedUserId = payload.userId;
+      let isValidToken = true;
+      try {
+        const userRevoke = await env.DB.prepare(
+          "SELECT tokens_valid_after FROM users WHERE id = ?"
+        ).bind(payload.userId).first<{ tokens_valid_after: string | null }>();
+
+        if (userRevoke && userRevoke.tokens_valid_after) {
+          const validAfterSec = Math.floor(new Date(userRevoke.tokens_valid_after).getTime() / 1000);
+          if (payload.iat && payload.iat < validAfterSec) {
+            isValidToken = false;
+          }
+        }
+      } catch (e) {
+        console.error("Token revocation check error:", e);
+      }
+
+      if (isValidToken) {
+        authenticatedUserId = payload.userId;
+      }
     }
   }
 

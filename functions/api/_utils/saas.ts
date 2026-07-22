@@ -12,8 +12,11 @@ export interface WorkspaceLimit {
   dmEnabled?: boolean;
   mediaEnabled?: boolean;
   allowedExtensions?: string;
+  maxFileSizeMb?: number;
   stripeSubscriptionId?: string;
 }
+
+const DANGEROUS_EXTENSIONS = ["exe", "bat", "cmd", "sh", "php", "cgi", "pl", "asp", "aspx", "jsp", "html", "htm", "phtml", "vbs", "ps1", "dll", "scr"];
 
 /**
  * ワークスペースの現在のサブスクリプション情報と各種リソースの使用状況を取得します。
@@ -30,6 +33,7 @@ export async function getWorkspaceSubscription(env: Env, workspaceId: string): P
     dmEnabled: true,
     mediaEnabled: true,
     allowedExtensions: "",
+    maxFileSizeMb: 100,
   };
 
   // 無効なワークスペースIDの場合は初期値を返す
@@ -73,6 +77,7 @@ export async function getWorkspaceSubscription(env: Env, workspaceId: string): P
           dmEnabled: saasPlan.dmEnabled,
           mediaEnabled: saasPlan.mediaEnabled,
           allowedExtensions: saasPlan.allowedExtensions,
+          maxFileSizeMb: saasPlan.maxFileSizeMb || 100,
           stripeSubscriptionId: saasPlan.stripeSubscriptionId,
         };
       }
@@ -92,38 +97,53 @@ export async function checkWorkspaceLimit(
   workspaceId: string | null | undefined,
   type: "channel" | "member" | "storage" | "dm" | "media",
   incomingValue: number = 1,
-  extra?: { fileExtension?: string }
+  extra?: { fileExtension?: string; fileSize?: number }
 ): Promise<{ allowed: boolean; message?: string }> {
-  // ワークスペースIDが無い場合は制限チェックをスキップ
+  // 1. セキュリティ最優先: 危険拡張子ブラックリストチェック（ワークスペース有無に関わらず常時実行）
+  if (extra?.fileExtension) {
+    const fileExt = extra.fileExtension.toLowerCase().replace(/^\./, "");
+    if (DANGEROUS_EXTENSIONS.includes(fileExt)) {
+      return {
+        allowed: false,
+        message: `セキュリティ保護のため、拡張子「.${fileExt}」の実行ファイル・スクリプトのアップロードは全環境で禁止されています。`,
+      };
+    }
+  }
+
+  // ワークスペースIDが無い場合でもセキュリティチェック完了後に通過
   if (!workspaceId || workspaceId === "null" || workspaceId === "undefined") {
     return { allowed: true };
   }
 
   const limits = await getWorkspaceSubscription(env, workspaceId);
-
-  // unlimitedプランは制限を実質無効にする
-  if (limits.plan === "unlimited") {
-    return { allowed: true };
-  }
-
   const planName = limits.plan === "free" ? "無料" : limits.plan === "pro" ? "プロ" : limits.plan;
 
   if (type === "channel") {
-    if (limits.channelUsed + incomingValue > limits.channelLimit) {
+    if (limits.plan !== "unlimited" && limits.channelUsed + incomingValue > limits.channelLimit) {
       return {
         allowed: false,
         message: `${planName}プランの制限に達しました。作成可能なチャンネル数は最大 ${limits.channelLimit} 個までです。`,
       };
     }
   } else if (type === "member") {
-    if (limits.memberUsed + incomingValue > limits.memberLimit) {
+    if (limits.plan !== "unlimited" && limits.memberUsed + incomingValue > limits.memberLimit) {
       return {
         allowed: false,
         message: `${planName}プランの制限に達しました。追加可能なメンバー数は最大 ${limits.memberLimit} 人までです。`,
       };
     }
   } else if (type === "storage") {
-    if (limits.storageUsed + incomingValue > limits.storageLimit) {
+    // 1ファイルあたりの単体サイズ制限のチェック（100MB または プラン設定値）
+    const fileSizeToCheck = extra?.fileSize || incomingValue;
+    const maxSingleFileBytes = (limits.maxFileSizeMb || 100) * 1024 * 1024;
+    if (fileSizeToCheck > maxSingleFileBytes) {
+      return {
+        allowed: false,
+        message: `ファイルサイズが上限（${limits.maxFileSizeMb || 100}MB）を超えています。`,
+      };
+    }
+
+    if (limits.plan !== "unlimited" && limits.storageUsed + incomingValue > limits.storageLimit) {
       const limitMb = limits.storageLimit / (1024 * 1024);
       const limitStr = limitMb >= 1024 ? `${Math.round(limitMb / 1024)}GB` : `${Math.round(limitMb)}MB`;
       return {
@@ -132,26 +152,28 @@ export async function checkWorkspaceLimit(
       };
     }
   } else if (type === "dm") {
-    if (limits.dmEnabled === false) {
+    if (limits.plan !== "unlimited" && limits.dmEnabled === false) {
       return {
         allowed: false,
         message: `${planName}プランではDM機能が無効化されています。`,
       };
     }
   } else if (type === "media") {
-    if (limits.mediaEnabled === false) {
+    if (limits.plan !== "unlimited" && limits.mediaEnabled === false) {
       return {
         allowed: false,
         message: `${planName}プランではファイルのアップロード（メディア機能）が禁止されています。`,
       };
     }
+
+    // 2. SaaSプランごとのホワイトリスト（allowedExtensions）のチェック
     if (extra?.fileExtension && limits.allowedExtensions) {
       const allowedList = limits.allowedExtensions.split(",")
         .map(ext => ext.trim().toLowerCase())
         .filter(ext => ext.length > 0);
       
       const fileExt = extra.fileExtension.toLowerCase().replace(/^\./, "");
-      if (!allowedList.includes(fileExt)) {
+      if (allowedList.length > 0 && !allowedList.includes(fileExt)) {
         return {
           allowed: false,
           message: `${planName}プランでは、拡張子「.${fileExt}」のファイルアップロードは許可されていません。`,

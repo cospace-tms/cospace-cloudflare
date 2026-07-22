@@ -46,6 +46,17 @@ export async function handleGetPresignedUploadUrl(request: Request, env: Env): P
       });
     }
 
+    const ext = fileName.includes(".") ? `.${fileName.split(".").pop()}` : "";
+
+    // 1. セキュリティ・危険拡張子およびストレージ制限チェック
+    const mediaCheck = await checkWorkspaceLimit(env, workspaceId, "media", 1, { fileExtension: ext });
+    if (!mediaCheck.allowed) {
+      return new Response(JSON.stringify({ error: mediaCheck.message }), {
+        status: 403,
+        headers,
+      });
+    }
+
     if (workspaceId) {
       // ワークスペース所属チェック
       const member = await env.DB.prepare(
@@ -60,7 +71,7 @@ export async function handleGetPresignedUploadUrl(request: Request, env: Env): P
       }
 
       // ストレージ制限チェック
-      const limitCheck = await checkWorkspaceLimit(env, workspaceId, 'storage');
+      const limitCheck = await checkWorkspaceLimit(env, workspaceId, 'storage', 1, { fileExtension: ext });
       if (!limitCheck.allowed) {
         return new Response(JSON.stringify({ error: limitCheck.message }), {
           status: 403,
@@ -267,22 +278,23 @@ export async function handleDirectUpload(request: Request, env: Env): Promise<Re
       });
     }
 
-    // SaaS制限チェック
-    if (file && workspaceId) {
-      // 1. ストレージ容量制限チェック
-      const limitCheck = await checkWorkspaceLimit(env, workspaceId, "storage", file.size);
-      if (!limitCheck.allowed) {
-        return new Response(JSON.stringify({ error: limitCheck.message }), {
+    // SaaS制限およびセキュリティチェック
+    if (file) {
+      const uploadExt = file.name.includes(".") ? `.${file.name.split(".").pop()}` : "";
+
+      // 1. メディア機能・危険拡張子チェック
+      const mediaCheck = await checkWorkspaceLimit(env, workspaceId, "media", 1, { fileExtension: uploadExt, fileSize: file.size });
+      if (!mediaCheck.allowed) {
+        return new Response(JSON.stringify({ error: mediaCheck.message }), {
           status: 403,
           headers,
         });
       }
 
-      // 2. メディア無効・禁止拡張子チェック
-      const uploadExt = file.name.includes(".") ? `.${file.name.split(".").pop()}` : "";
-      const mediaCheck = await checkWorkspaceLimit(env, workspaceId, "media", 1, { fileExtension: uploadExt });
-      if (!mediaCheck.allowed) {
-        return new Response(JSON.stringify({ error: mediaCheck.message }), {
+      // 2. ストレージ容量制限・1ファイル上限サイズチェック
+      const limitCheck = await checkWorkspaceLimit(env, workspaceId, "storage", file.size, { fileExtension: uploadExt, fileSize: file.size });
+      if (!limitCheck.allowed) {
+        return new Response(JSON.stringify({ error: limitCheck.message }), {
           status: 403,
           headers,
         });

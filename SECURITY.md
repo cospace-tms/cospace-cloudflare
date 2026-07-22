@@ -14,6 +14,10 @@ We take the security of **cohive** very seriously. Below you will find details o
 - **XSS & Content Sanitization**: Strict HTML escaping on user inputs and Markdown rendering, avoiding dangerous URL schemes (`javascript:`, `data:`, `vbscript:`).
 - **IDOR & Authorization Control**: Middleware-enforced JWT signature verification for all API routes, preventing header/query spoofing.
 - **Data Encryption at Rest**: Sensitive configurations (such as SMTP passwords) are encrypted using AES-GCM-256 before storage in D1 databases.
+- **Zero-Config CORS & Origin Protection**: Automatically restricts API cross-origin access to the deployed self-origin and trusted origins upon one-click deployment.
+- **Strict HTTP Security Headers**: Enforces `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `HSTS`, `X-XSS-Protection`, and `Referrer-Policy` across all API responses.
+- **Unhandled Error Masking**: Sanitizes 500 error responses to prevent internal database schema or stack trace information leakage.
+- **Rate Limiting & Abuse Prevention**: Rate-limits sensitive operations (login, registration, password changes, and message posts) at the edge.
 
 ---
 

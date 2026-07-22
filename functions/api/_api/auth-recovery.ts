@@ -118,9 +118,9 @@ export async function handleRecovery(request: Request, env: Env): Promise<Respon
       });
     }
 
-    // 新パスワードをハッシュ化して保存し、リカバリーコードをクリア
+    // 新パスワードをハッシュ化して保存し、リカバリーコードをクリア＆既存トークンを即時失効
     const newPasswordHash = await hashPassword(newPassword);
-    await env.DB.prepare("UPDATE users SET password_hash = ?, recovery_code_hash = NULL, updated_at = datetime('now') WHERE id = ?")
+    await env.DB.prepare("UPDATE users SET password_hash = ?, recovery_code_hash = NULL, tokens_valid_after = datetime('now'), updated_at = datetime('now') WHERE id = ?")
       .bind(newPasswordHash, user.id)
       .run();
 
@@ -249,8 +249,8 @@ export async function handleResetMemberPassword(
     const tempPassword = generateSecureTempPassword();
     const tempPasswordHash = await hashPassword(tempPassword);
 
-    // パスワードを一時パスワードに更新
-    await env.DB.prepare("UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?")
+    // パスワードを一時パスワードに更新し、既存の全セッション・トークンを即時失効
+    await env.DB.prepare("UPDATE users SET password_hash = ?, tokens_valid_after = datetime('now'), updated_at = datetime('now') WHERE id = ?")
       .bind(tempPasswordHash, userId)
       .run();
 

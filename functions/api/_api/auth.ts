@@ -249,10 +249,10 @@ export async function handleChangePassword(request: Request, env: Env): Promise<
       });
     }
 
-    // 新しいパスワードをハッシュ化して保存
+    // 新しいパスワードをハッシュ化して保存し、過去の全トークンを即時失効
     const newHash = await hashPassword(newPassword);
     await env.DB.prepare(
-      "UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?"
+      "UPDATE users SET password_hash = ?, tokens_valid_after = datetime('now'), updated_at = datetime('now') WHERE id = ?"
     ).bind(newHash, userId).run();
 
     return new Response(JSON.stringify({ success: true, message: "Password updated successfully" }), {
@@ -284,19 +284,18 @@ export async function handleRefresh(request: Request, env: Env): Promise<Respons
   }
 
   try {
+    const secret = await getJwtSecret(env);
     const cookies = parseCookies(request);
-    const refreshToken = cookies["refresh_token"];
+    const refreshToken = cookies.refresh_token;
 
     if (!refreshToken) {
-      return new Response(JSON.stringify({ error: "Refresh token is missing" }), {
+      return new Response(JSON.stringify({ error: "Refresh token missing" }), {
         status: 401,
         headers,
       });
     }
 
-    const secret = await getJwtSecret(env);
     const payload = await verifyJWT(refreshToken, secret);
-
     if (!payload || payload.type !== "refresh" || !payload.userId) {
       return new Response(JSON.stringify({ error: "Invalid or expired refresh token" }), {
         status: 401,
@@ -306,16 +305,24 @@ export async function handleRefresh(request: Request, env: Env): Promise<Respons
 
     const userId = payload.userId;
 
-    // ユーザー情報とデフォルトのワークスペース・チャンネルを再取得
+    // リフレッシュトークンの失効チェック
+    const userRevoke = await env.DB.prepare(
+      "SELECT tokens_valid_after FROM users WHERE id = ?"
+    ).bind(userId).first<{ tokens_valid_after: string | null }>();
+
+    if (userRevoke && userRevoke.tokens_valid_after) {
+      const validAfterSec = Math.floor(new Date(userRevoke.tokens_valid_after).getTime() / 1000);
+      if (payload.iat && payload.iat < validAfterSec) {
+        return new Response(JSON.stringify({ error: "Session has been revoked" }), {
+          status: 401,
+          headers,
+        });
+      }
+    }
+
     const userResult = await env.DB.prepare(
       "SELECT id, email, display_name, avatar_url as avatarUrl, language FROM users WHERE id = ?"
-    ).bind(userId).first<{
-      id: string;
-      email: string;
-      display_name: string;
-      avatarUrl?: string | null;
-      language?: string;
-    }>();
+    ).bind(userId).first<any>();
 
     if (!userResult) {
       return new Response(JSON.stringify({ error: "User not found" }), {
@@ -324,27 +331,26 @@ export async function handleRefresh(request: Request, env: Env): Promise<Respons
       });
     }
 
+    let workspaceId = "";
+    let defaultChannelId = "";
+
     const memberResult = await env.DB.prepare(
       "SELECT workspace_id FROM workspace_members WHERE user_id = ? LIMIT 1"
     ).bind(userId).first<{ workspace_id: string }>();
 
-    let workspaceId = memberResult?.workspace_id || "";
-    let defaultChannelId = "";
-
-    if (workspaceId) {
+    if (memberResult) {
+      workspaceId = memberResult.workspace_id;
       const channelResult = await env.DB.prepare(
         "SELECT id FROM channels WHERE workspace_id = ? ORDER BY created_at ASC LIMIT 1"
       ).bind(workspaceId).first<{ id: string }>();
       defaultChannelId = channelResult?.id || "";
     }
 
-    // 新しいアクセストークンを生成 (15分有効)
     const accessToken = await signJWT(
       { userId, type: "access", exp: Math.floor(Date.now() / 1000) + 900 },
       secret
     );
 
-    // リフレッシュトークンもローテーション (有効期限の更新)
     const newRefreshToken = await signJWT(
       { userId, type: "refresh", exp: Math.floor(Date.now() / 1000) + 30 * 24 * 3600 },
       secret
@@ -383,7 +389,7 @@ export async function handleRefresh(request: Request, env: Env): Promise<Respons
   }
 }
 
-// ログアウト (リフレッシュトークンCookieの削除)
+// ログアウト (リフレッシュトークンCookieの削除と過去全セッションの失効)
 export async function handleLogout(request: Request, env: Env): Promise<Response> {
   const origin = request.headers.get("Origin") || "*";
   const headers = {
