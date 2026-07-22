@@ -9,15 +9,42 @@ function getHeaders(request: Request) {
   };
 }
 
-// ランダムな一時パスワードの生成
-function generateTempPassword(): string {
-  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let temp = "temp_";
-  for (let i = 0; i < 8; i++) {
-    const randomIndex = crypto.getRandomValues(new Uint8Array(1))[0] % chars.length;
-    temp += chars[randomIndex];
+// ランダムな一時パスワードの生成（高エントロピー 16文字）
+export function generateSecureTempPassword(): string {
+  const lowercase = "abcdefghijklmnopqrstuvwxyz";
+  const uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const numbers = "0123456789";
+  const symbols = "!@#$%^&*()_+-=[]{}|;:,.<>?";
+  const allChars = lowercase + uppercase + numbers + symbols;
+
+  const getRandomChar = (chars: string): string => {
+    const array = new Uint32Array(1);
+    crypto.getRandomValues(array);
+    return chars[array[0] % chars.length];
+  };
+
+  // 各カテゴリから最低1文字を確保
+  const password = [
+    getRandomChar(lowercase),
+    getRandomChar(uppercase),
+    getRandomChar(numbers),
+    getRandomChar(symbols),
+  ];
+
+  // 残りの12文字をランダムに充填（計16文字）
+  for (let i = 0; i < 12; i++) {
+    password.push(getRandomChar(allChars));
   }
-  return temp;
+
+  // フィッシャー–イェーツ シャッフル
+  for (let i = password.length - 1; i > 0; i--) {
+    const array = new Uint32Array(1);
+    crypto.getRandomValues(array);
+    const j = array[0] % (i + 1);
+    [password[i], password[j]] = [password[j], password[i]];
+  }
+
+  return password.join("");
 }
 
 // ユーザーがオーナー権限を持っているかチェックするヘルパー
@@ -219,7 +246,7 @@ export async function handleResetMemberPassword(
     }
 
     // 一時パスワードを生成
-    const tempPassword = generateTempPassword();
+    const tempPassword = generateSecureTempPassword();
     const tempPasswordHash = await hashPassword(tempPassword);
 
     // パスワードを一時パスワードに更新

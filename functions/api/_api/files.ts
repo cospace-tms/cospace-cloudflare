@@ -29,8 +29,14 @@ export async function handleGetPresignedUploadUrl(request: Request, env: Env): P
   };
 
   try {
+    const userId = request.headers.get("X-User-Id");
+    if (!userId) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers });
+    }
+
     const url = new URL(request.url);
     const fileName = url.searchParams.get("fileName");
+    const workspaceId = url.searchParams.get("workspaceId");
     const contentType = url.searchParams.get("contentType") || "application/octet-stream";
 
     if (!fileName) {
@@ -38,6 +44,29 @@ export async function handleGetPresignedUploadUrl(request: Request, env: Env): P
         status: 400,
         headers,
       });
+    }
+
+    if (workspaceId) {
+      // ワークスペース所属チェック
+      const member = await env.DB.prepare(
+        "SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?"
+      ).bind(workspaceId, userId).first();
+
+      if (!member) {
+        return new Response(JSON.stringify({ error: "Forbidden: You are not a member of this workspace" }), {
+          status: 403,
+          headers,
+        });
+      }
+
+      // ストレージ制限チェック
+      const limitCheck = await checkWorkspaceLimit(env, workspaceId, 'storage');
+      if (!limitCheck.allowed) {
+        return new Response(JSON.stringify({ error: limitCheck.message }), {
+          status: 403,
+          headers,
+        });
+      }
     }
 
     const fileId = crypto.randomUUID();

@@ -75,14 +75,16 @@ export async function handleLogin(request: Request, env: Env): Promise<Response>
     const mfaRequired = smtpSettings && smtpSettings.mfaEnabled;
 
     if (mfaRequired) {
-      // MFAが有効な場合：確認コードを発行してメール送信、JWTトークンはまだ生成しない
-      const otpCode = Math.floor(100000 + Math.random() * 900000).toString(); // 6桁のOTP
+      // MFAが有効な場合：暗号論的に安全な確認コードを発行してメール送信、JWTトークンはまだ生成しない
+      const otpArray = new Uint32Array(1);
+      crypto.getRandomValues(otpArray);
+      const otpCode = (100000 + (otpArray[0] % 900000)).toString(); // 6桁のセキュアOTP
       const mfaSessionId = crypto.randomUUID();
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // 5分間有効
 
       // login_verification_codes テーブルに保存
       await env.DB.prepare(
-        "INSERT INTO login_verification_codes (id, user_id, code, expires_at) VALUES (?, ?, ?, ?)"
+        "INSERT INTO login_verification_codes (id, user_id, code, expires_at, attempts) VALUES (?, ?, ?, ?, 0)"
       ).bind(mfaSessionId, userResult.id, otpCode, expiresAt).run();
 
       // メール送信
@@ -440,7 +442,7 @@ export async function handleVerifyMfa(request: Request, env: Env): Promise<Respo
     // コードの検証
     const record = await env.DB.prepare(
       "SELECT * FROM login_verification_codes WHERE id = ?"
-    ).bind(tempSessionId).first<{ id: string; user_id: string; code: string; expires_at: string }>();
+    ).bind(tempSessionId).first<{ id: string; user_id: string; code: string; expires_at: string; attempts?: number }>();
 
     if (!record) {
       return new Response(JSON.stringify({ error: "Invalid temporary session ID" }), {
@@ -449,8 +451,22 @@ export async function handleVerifyMfa(request: Request, env: Env): Promise<Respo
       });
     }
 
+    const attempts = (record.attempts || 0) + 1;
+
+    // 不正なコードが入力された場合
     if (record.code !== code.trim()) {
-      return new Response(JSON.stringify({ error: "Incorrect verification code" }), {
+      // 5回失敗した場合は、ブルートフォース防御のため該当MFAコードを即座に破棄・失効
+      if (attempts >= 5) {
+        await env.DB.prepare("DELETE FROM login_verification_codes WHERE id = ?").bind(tempSessionId).run();
+        return new Response(JSON.stringify({ error: "Too many failed attempts. Verification code invalidated. Please login again." }), {
+          status: 400,
+          headers,
+        });
+      }
+
+      // 試行回数を更新
+      await env.DB.prepare("UPDATE login_verification_codes SET attempts = ? WHERE id = ?").bind(attempts, tempSessionId).run();
+      return new Response(JSON.stringify({ error: `Incorrect verification code. (${5 - attempts} attempts remaining)` }), {
         status: 400,
         headers,
       });
@@ -458,6 +474,7 @@ export async function handleVerifyMfa(request: Request, env: Env): Promise<Respo
 
     const now = new Date().toISOString();
     if (record.expires_at < now) {
+      await env.DB.prepare("DELETE FROM login_verification_codes WHERE id = ?").bind(tempSessionId).run();
       return new Response(JSON.stringify({ error: "Verification code has expired" }), {
         status: 400,
         headers,

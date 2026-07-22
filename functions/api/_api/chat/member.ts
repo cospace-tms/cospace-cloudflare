@@ -3,6 +3,7 @@ import { checkWorkspaceLimit } from "../../_utils/saas";
 import { sendMail, getSmtpSettings } from "../../_utils/smtp";
 import { canAccessChannel, sendPushToUsers } from "./message";
 import { verifyPassword, hashPassword } from "../setup";
+import { generateSecureTempPassword } from "../auth-recovery";
 import { logAudit } from "../../_utils/audit";
 
 const headers = {
@@ -127,6 +128,25 @@ export async function handleGetWorkspaceMembers(request: Request, env: Env, work
 // メンバー追加 API
 export async function handleAddWorkspaceMember(request: Request, env: Env, workspaceId: string): Promise<Response> {
   try {
+    const operatorId = request.headers.get("X-User-Id");
+    if (!operatorId) {
+      return new Response(JSON.stringify({ error: "User unauthorized" }), {
+        status: 401,
+        headers,
+      });
+    }
+
+    const operator = await env.DB.prepare(
+      "SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?"
+    ).bind(workspaceId, operatorId).first<{ role: string }>();
+
+    if (!operator || (operator.role !== 'owner' && operator.role !== 'group_admin')) {
+      return new Response(JSON.stringify({ error: "Permission denied: Only workspace owners or group admins can add members" }), {
+        status: 403,
+        headers,
+      });
+    }
+
     const body: any = await request.json();
     const { email, role, groupId } = body;
 
@@ -161,13 +181,8 @@ export async function handleAddWorkspaceMember(request: Request, env: Env, works
       userId = crypto.randomUUID();
       const displayName = email.split('@')[0];
 
-      // ランダム初期パスワード生成
-      const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-      for (let i = 0; i < 10; i++) {
-        const randomIndex = crypto.getRandomValues(new Uint8Array(1))[0] % chars.length;
-        tempPassword += chars[randomIndex];
-      }
-
+      // 暗号論的に安全なランダム初期パスワード生成（16文字・全文字種）
+      tempPassword = generateSecureTempPassword();
       const tempHash = await hashPassword(tempPassword);
 
       await env.DB.prepare(
@@ -1299,13 +1314,15 @@ export async function handleRequestEmailChange(request: Request, env: Env): Prom
         headers,
       });
     } else {
-      // SMTP設定済みの場合は確認コード送信フロー
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      // SMTP設定済みの場合は暗号論的に安全な確認コード送信フロー
+      const otpArray = new Uint32Array(1);
+      crypto.getRandomValues(otpArray);
+      const code = (100000 + (otpArray[0] % 900000)).toString();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15分後
 
       // 一時変更要求の作成（既存があれば置換）
       await env.DB.prepare(
-        "INSERT OR REPLACE INTO email_change_requests (user_id, new_email, verification_code, expires_at) VALUES (?, ?, ?, ?)"
+        "INSERT OR REPLACE INTO email_change_requests (user_id, new_email, verification_code, expires_at, attempts) VALUES (?, ?, ?, ?, 0)"
       ).bind(userId, newEmail, code, expiresAt).run();
 
       // メールの送信
@@ -1363,8 +1380,8 @@ export async function handleConfirmEmailChange(request: Request, env: Env): Prom
 
     // 保留中のリクエストを取得
     const pendingRequest = await env.DB.prepare(
-      "SELECT new_email, verification_code, expires_at FROM email_change_requests WHERE user_id = ?"
-    ).bind(userId).first<{ new_email: string; verification_code: string; expires_at: string }>();
+      "SELECT new_email, verification_code, expires_at, attempts FROM email_change_requests WHERE user_id = ?"
+    ).bind(userId).first<{ new_email: string; verification_code: string; expires_at: string; attempts?: number }>();
 
     if (!pendingRequest) {
       return new Response(JSON.stringify({ error: "No pending email change request found" }), {
@@ -1384,9 +1401,22 @@ export async function handleConfirmEmailChange(request: Request, env: Env): Prom
       });
     }
 
+    const attempts = (pendingRequest.attempts || 0) + 1;
+
     // コードチェック
-    if (pendingRequest.verification_code !== code) {
-      return new Response(JSON.stringify({ error: "Invalid verification code" }), {
+    if (pendingRequest.verification_code !== code.trim()) {
+      // 3回失敗した場合は、アカウント乗っ取り防御のため変更要求を即座に破棄・失効
+      if (attempts >= 3) {
+        await env.DB.prepare("DELETE FROM email_change_requests WHERE user_id = ?").bind(userId).run();
+        return new Response(JSON.stringify({ error: "Too many failed attempts. Email change request invalidated. Please request again." }), {
+          status: 400,
+          headers,
+        });
+      }
+
+      // 試行回数を更新
+      await env.DB.prepare("UPDATE email_change_requests SET attempts = ? WHERE user_id = ?").bind(attempts, userId).run();
+      return new Response(JSON.stringify({ error: `Incorrect verification code. (${3 - attempts} attempts remaining)` }), {
         status: 400,
         headers,
       });

@@ -424,6 +424,26 @@ async function runMigrations(env: Env) {
     }
   }
 
+  // 8. login_verification_codes テーブルへの attempts カラム追加マイグレーション
+  try {
+    await env.DB.prepare("SELECT attempts FROM login_verification_codes LIMIT 1").all();
+  } catch (colErr: any) {
+    if (colErr.message && (colErr.message.includes("no such column") || colErr.message.includes("has no column"))) {
+      console.log("Database Migration: Adding attempts column to login_verification_codes table...");
+      await env.DB.prepare("ALTER TABLE login_verification_codes ADD COLUMN attempts INTEGER DEFAULT 0").run();
+    }
+  }
+
+  // 9. email_change_requests テーブルへの attempts カラム追加マイグレーション
+  try {
+    await env.DB.prepare("SELECT attempts FROM email_change_requests LIMIT 1").all();
+  } catch (colErr: any) {
+    if (colErr.message && (colErr.message.includes("no such column") || colErr.message.includes("has no column"))) {
+      console.log("Database Migration: Adding attempts column to email_change_requests table...");
+      await env.DB.prepare("ALTER TABLE email_change_requests ADD COLUMN attempts INTEGER DEFAULT 0").run();
+    }
+  }
+
   // 11. 未読通知カウント高速化インデックスの追加
   try {
     await env.DB.prepare(`
