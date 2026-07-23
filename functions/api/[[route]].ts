@@ -47,6 +47,7 @@ import {
   handleUpdateUser,
   handleGetWorkspaceMembers,
   handleAddWorkspaceMember,
+  handleReinviteWorkspaceMember,
   handleUpdateWorkspaceMember,
   handleDeleteWorkspaceMember,
   handleGetWorkspaceUserRole,
@@ -958,6 +959,14 @@ async function handleApiRequests(context: EventContext<Env, any, any>, origin: s
       const userId = workspaceMemberResetPasswordMatch[2];
       if (method === "POST") {
         return await handleResetMemberPassword(request, env, { workspaceId, userId });
+      }
+    }
+    const workspaceMemberReinviteMatch = url.pathname.match(/^\/api\/workspaces\/([^\/]+)\/members\/([^\/]+)\/reinvite$/);
+    if (workspaceMemberReinviteMatch) {
+      const workspaceId = workspaceMemberReinviteMatch[1];
+      const targetUserId = workspaceMemberReinviteMatch[2];
+      if (method === "POST") {
+        return await handleReinviteWorkspaceMember(request, env, workspaceId, targetUserId);
       }
     }
     const workspaceRoleMatch = url.pathname.match(/^\/api\/workspaces\/([^\/]+)\/role$/);

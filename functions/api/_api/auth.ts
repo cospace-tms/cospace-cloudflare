@@ -62,6 +62,14 @@ export async function handleLogin(request: Request, env: Env): Promise<Response>
       });
     }
 
+    // 初回ログイン時に pending 状態であれば active へ自動更新
+    if (userResult.status === 'pending') {
+      await env.DB.prepare(
+        "UPDATE users SET status = 'active', updated_at = datetime('now') WHERE id = ?"
+      ).bind(userResult.id).run();
+      userResult.status = 'active';
+    }
+
     // ユーザーが所属するワークスペースを取得
     const memberResult = await env.DB.prepare(
       "SELECT workspace_id FROM workspace_members WHERE user_id = ? LIMIT 1"

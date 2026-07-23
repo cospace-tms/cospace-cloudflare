@@ -1,12 +1,12 @@
 # Security Policy
 
-We take the security of **cohive** very seriously. Below you will find details on our security architecture, best practices, and how to report vulnerabilities responsibly.
+We take the security of **CoHive** very seriously. Below you will find details on our security architecture, best practices, and how to report vulnerabilities responsibly.
 
 ---
 
 ## 🛡️ Built-in Security Architecture
 
-**cohive** is designed with privacy and security at its core:
+**CoHive** is designed with privacy and security at its core:
 
 - **Strong Password Hashing**: Uses Web Crypto API's **PBKDF2 with 600,000 iterations** (OWASP 2024 recommended standard) and cryptographically secure salts.
 - **Timing Attack Prevention**: Uses constant-time string comparisons (`timingSafeEqual`) for password hash verification.
@@ -40,4 +40,4 @@ If Private Vulnerability Reporting is unavailable in your view, you may open a [
 - **Assessment & Status Updates**: Within 7 business days.
 - **Fix Release**: As soon as possible depending on severity.
 
-Thank you for helping keep **cohive** secure for everyone!
+Thank you for helping keep **CoHive** secure for everyone!

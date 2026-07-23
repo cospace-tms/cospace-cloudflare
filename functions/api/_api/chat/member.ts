@@ -86,6 +86,7 @@ export async function handleGetWorkspaceMembers(request: Request, env: Env, work
         u.email,
         u.display_name as displayName,
         u.avatar_url as avatarUrl,
+        u.status as status,
         wm.role,
         (
           SELECT json_group_array(group_id) 
@@ -108,6 +109,7 @@ export async function handleGetWorkspaceMembers(request: Request, env: Env, work
       email: r.email,
       displayName: r.displayName,
       avatarUrl: r.avatarUrl,
+      status: r.status || 'active',
       role: r.role,
       groupIds: r.groupIdsJson ? JSON.parse(r.groupIdsJson) : [],
       leaderGroupIds: r.leaderGroupIdsJson ? JSON.parse(r.leaderGroupIdsJson) : []
@@ -186,7 +188,7 @@ export async function handleAddWorkspaceMember(request: Request, env: Env, works
       const tempHash = await hashPassword(tempPassword);
 
       await env.DB.prepare(
-        "INSERT INTO users (id, email, password_hash, display_name, language, created_at, updated_at) VALUES (?, ?, ?, ?, 'ja', datetime('now'), datetime('now'))"
+        "INSERT INTO users (id, email, password_hash, display_name, language, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'ja', 'pending', datetime('now'), datetime('now'))"
       ).bind(userId, email, tempHash, displayName).run();
     }
 
@@ -1458,4 +1460,116 @@ export async function handleConfirmEmailChange(request: Request, env: Env): Prom
     });
   }
 }
+
+// ワークスペースメンバー再招待 API
+export async function handleReinviteWorkspaceMember(request: Request, env: Env, workspaceId: string, targetUserId: string): Promise<Response> {
+  try {
+    const operatorId = request.headers.get("X-User-Id");
+    if (!operatorId) {
+      return new Response(JSON.stringify({ error: "User unauthorized" }), {
+        status: 401,
+        headers,
+      });
+    }
+
+    const operator = await env.DB.prepare(
+      "SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?"
+    ).bind(workspaceId, operatorId).first<{ role: string }>();
+
+    if (!operator || operator.role === 'guest') {
+      return new Response(JSON.stringify({ error: "Permission denied" }), {
+        status: 403,
+        headers,
+      });
+    }
+
+    const targetUser = await env.DB.prepare(
+      "SELECT u.id, u.email, u.status, wm.role FROM users u JOIN workspace_members wm ON u.id = wm.user_id WHERE wm.workspace_id = ? AND u.id = ?"
+    ).bind(workspaceId, targetUserId).first<{ id: string; email: string; status: string; role: string }>();
+
+    if (!targetUser) {
+      return new Response(JSON.stringify({ error: "Member not found" }), {
+        status: 404,
+        headers,
+      });
+    }
+
+    if (targetUser.status !== 'pending') {
+      return new Response(JSON.stringify({ error: "User is already active" }), {
+        status: 400,
+        headers,
+      });
+    }
+
+    const tempPassword = generateSecureTempPassword();
+    const tempHash = await hashPassword(tempPassword);
+
+    await env.DB.prepare(
+      "UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?"
+    ).bind(tempHash, targetUserId).run();
+
+    logAudit(env, workspaceId, operatorId, "member_reinvite", { invitedEmail: targetUser.email, role: targetUser.role }, request).catch(console.error);
+
+    let emailSent = false;
+    const smtpSettings = await getSmtpSettings(env);
+    if (smtpSettings) {
+      try {
+        const workspace = await env.DB.prepare(
+          "SELECT name FROM workspaces WHERE id = ?"
+        ).bind(workspaceId).first<{ name: string }>();
+        const workspaceName = workspace?.name || "Cohive";
+
+        const url = new URL(request.url);
+        const loginUrl = `${url.protocol}//${url.host}`;
+
+        const tempPasswordText = `初期パスワード: ${tempPassword}\r\n※ログイン後、必ずパスワードの変更をお願いいたします。\r\n\r\n`;
+        const tempPasswordHtml = `
+          <div style="background-color: #f3f4f6; padding: 15px; border-radius: 5px; margin: 15px 0; border: 1px dashed #d1d5db;">
+            <p style="margin: 0; font-weight: bold; color: #1f2937;">初期パスワード: <span style="font-family: monospace; font-size: 16px; color: #4f46e5;">${tempPassword}</span></p>
+            <p style="margin: 5px 0 0 0; font-size: 12px; color: #6b7280;">※ログイン後、右上メニューの「設定」から必ずパスワードを変更してください。</p>
+          </div>
+        `;
+
+        const subject = `[再招待] ワークスペース「${workspaceName}」への招待`;
+        const text = `ワークスペース「${workspaceName}」への再招待が送信されました。\r\n\r\n${tempPasswordText}以下のURLからログインしてください:\r\n${loginUrl}`;
+        const html = `
+          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2>ワークスペース「${workspaceName}」への再招待</h2>
+            <p>ワークスペース「${workspaceName}」への再招待が届いています。</p>
+            ${tempPasswordHtml}
+            <p style="margin-top: 20px;">
+              <a href="${loginUrl}" style="background-color: #4f46e5; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">ログインページを開く</a>
+            </p>
+          </div>
+        `;
+
+        await sendMail(smtpSettings, {
+          to: targetUser.email,
+          subject,
+          text,
+          html
+        });
+        emailSent = true;
+      } catch (mailErr) {
+        console.error("Failed to resend invite email:", mailErr);
+      }
+    }
+
+    return new Response(JSON.stringify({
+      success: true,
+      tempPassword,
+      emailSent,
+      message: "Member reinvited successfully"
+    }), {
+      status: 200,
+      headers,
+    });
+  } catch (error: any) {
+    return new Response(JSON.stringify({ error: error.message || "Internal Server Error" }), {
+      status: 500,
+      headers,
+    });
+  }
+}
+
 

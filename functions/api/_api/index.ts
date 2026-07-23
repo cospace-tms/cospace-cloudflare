@@ -16,6 +16,7 @@ export {
   handleUpdateUser,
   handleGetWorkspaceMembers,
   handleAddWorkspaceMember,
+  handleReinviteWorkspaceMember,
   handleUpdateWorkspaceMember,
   handleDeleteWorkspaceMember,
   handleGetWorkspaceUserRole,

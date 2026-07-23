@@ -5,8 +5,8 @@
 ## 1. Terms of Use / 利用規約
 
 * **License / ライセンス**:
-  * **cohive** is provided as open-source software under the [MIT License](./LICENSE). You are free to use, modify, and distribute it in accordance with the license terms.
-  * cohiveは[MITライセンス](./LICENSE)の下でオープンソースソフトウェアとして提供されています。規約の範囲内で自由にご利用・改変・再配布いただけます。
+  * **CoHive** is provided as open-source software under the [MIT License](./LICENSE). You are free to use, modify, and distribute it in accordance with the license terms.
+  * CoHiveは[MITライセンス](./LICENSE)の下でオープンソースソフトウェアとして提供されています。規約の範囲内で自由にご利用・改変・再配布いただけます。
 
 * **Prohibited Activities / 禁止事項**:
   * When using the public demo instance or community services, you agree not to perform malicious activities, spamming, illegal content distribution, or server denial-of-service attacks.

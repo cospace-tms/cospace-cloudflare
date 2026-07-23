@@ -1,4 +1,4 @@
-# 💬 cohive
+# 💬 CoHive
 
 A zero-cost, fully self-hosted, and ultra-lightweight business collaboration platform.
 
@@ -12,7 +12,7 @@ A zero-cost, fully self-hosted, and ultra-lightweight business collaboration pla
 
 ## 🌟 Overview
 
-**cohive** is an ultra-lightweight, fully independent (self-hosted) business communication and collaboration application designed to break you free from vendor lock-in, soaring monthly fees, and data limits of proprietary platforms.
+**CoHive** is an ultra-lightweight, fully independent (self-hosted) business communication and collaboration application designed to break you free from vendor lock-in, soaring monthly fees, and data limits of proprietary platforms.
 
 By leveraging Cloudflare’s powerful serverless ecosystem (Pages, Workers, D1, R2), you can deploy a secure, private collaboration environment to your own infrastructure with a single click.
 
@@ -50,9 +50,15 @@ Click the button below to start the deployment process:
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cohive-tms/cohive-cloudflare)
 
+> 💡 **Automatic Updates**  
+> Repositories deployed via this button include a GitHub Actions workflow (`.github/workflows/auto-sync.yml`) that automatically syncs fixes and features from upstream daily, keeping your app **up-to-date automatically without manual action**.  
+> 
+> **※ Note for Manual Management:**  
+> If you prefer to manage updates manually or customize the codebase yourself, please **`Fork`** (or `Use this template`) this repository into your account first. To stop automatic updates, simply delete the `.github/workflows/auto-sync.yml` file (or disable it under the GitHub Actions tab) in your repository.
+
 ### 2. Authorize & Deploy on Cloudflare
 1. Log in to (or sign up for) your Cloudflare dashboard and authorize GitHub access.
-2. Cloudflare will **automatically fork/import** this repository into your own GitHub account.
+2. Cloudflare will **automatically import** this repository into your own GitHub account.
 3. Build configurations and database bindings will be **automatically populated** based on `wrangler.toml`. Simply click "Connect" and "Deploy".
 
 ### 3. Visit the URL & Register

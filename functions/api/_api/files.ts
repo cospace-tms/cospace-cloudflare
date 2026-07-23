@@ -302,7 +302,7 @@ export async function handleDirectUpload(request: Request, env: Env): Promise<Re
 
     const fileId = crypto.randomUUID();
     const ext = file.name.includes(".") ? `.${file.name.split(".").pop()}` : "";
-    const objectKey = `uploads/${fileId}${ext}`;
+    const objectKey = `workspaces/${workspaceId}/files/${fileId}${ext}`;
 
     // R2に保存
     await env.BUCKET.put(objectKey, file.stream(), {
