@@ -65,12 +65,42 @@ Click the button below to start the deployment process:
 Once deployed, Cloudflare will provide a `https://xxx.pages.dev` URL. 
 Visiting this URL for the first time will **automatically initialize the D1 database tables**. Fill out the administrator setup form, and you are ready to go!
 
-### 4. Recommended: Configure SMTP Email Settings
+---
+
+## 🚀 Production Setup Checklist
+
+When moving your deployment into active production for your team or organization, we strongly recommend following these setup steps to ensure optimal security and operational readiness.
+
+```mermaid
+flowchart TD
+    Step1["🚀 STEP 1: One-Click Deploy<br/>(Initial setup & Admin registration)"] --> Step2["🔑 STEP 2: Configure ENCRYPTION_SECRET<br/>(Physical key-data separation against DB leaks)"]
+    Step2 --> Step3["✉️ STEP 3: Configure SMTP Email<br/>(Invitations, MFA & Offline notifications)"]
+    Step3 --> Step4["🌐 STEP 4: Custom Domain & Access Rules<br/>(CORS restriction, WAF & Zero Trust)"]
+```
+
+### 1. 🔑 Strongly Recommended: Set `ENCRYPTION_SECRET` Environment Variable
+By default (without environment variables), encryption keys are auto-generated and stored directly inside the D1 database.  
+To **completely eliminate the risk of decrypted credentials in the event of a full D1 database leak**, you should store your encryption secret in Cloudflare Workers environment variables (Secrets).
+
+* **Setup Instructions**:
+  1. Go to Cloudflare Dashboard > **Workers & Pages** > Select your deployed project.
+  2. Navigate to **Settings > Environment Variables**.
+  3. Click **Add variable** and configure:
+     - **Variable name**: `ENCRYPTION_SECRET`
+     - **Value**: A random 32+ byte secret string (e.g. generated via `openssl rand -hex 32`)
+     - **Type**: `Secret (Encrypted)`
+
+> 💡 **Physical Separation Benefit**  
+> This physically separates the decryption key from the D1 database storage. Even if your entire D1 database dump is compromised, sensitive values like SMTP passwords **cannot be decrypted**.
+
+---
+
+### 2. ✉️ Recommended: Configure SMTP Email Settings
 By default, email sending is **optional**. However, without email settings, you must rely on:
 * **Recovery Code** for administrator password recovery (provided during setup).
 * **Temporary passwords** issued by the administrator for other workspace members.
 
-To unlock full capabilities (automated workspace invitation emails, offline notifications, and MFA), log in as an administrator, navigate to **Workspace Settings > Email Sending Settings**, and enter your SMTP server credentials (e.g., Google App Password or SMTP credentials from your hosting provider).
+To unlock full capabilities (automated workspace invitation emails, offline notifications, and MFA), log in as an administrator, navigate to **Workspace Settings > Email Sending Settings**, and enter your SMTP server credentials (e.g., Google App Password or SMTP credentials from your provider).
 
 ---
 
@@ -81,7 +111,7 @@ When you click deploy, Cloudflare provisions and configures the following resour
 1. **Pages Project**: Hosts the frontend assets and backend serverless API (Functions).
 2. **D1 Database (SQL)**: Automatically creates a database named `cohive_db`.
 3. **R2 Bucket (Object Storage)**: Automatically creates a storage bucket named `cohive-storage` for attachments/media.
-4. **Bindings**: Automatically connects the D1 Database and R2 Bucket to your Pages Functions.
+4. **Binding**: Automatically connects the D1 Database and R2 Bucket to your Pages Functions.
 5. **Database Initialization**: On your first visit to the deployment URL, the application code automatically executes schema creation (no manual SQL execution needed).
 
 ---
@@ -90,13 +120,19 @@ When you click deploy, Cloudflare provisions and configures the following resour
 
 For production deployments, we strongly recommend implementing the following security measures in your Cloudflare Dashboard:
 
-### 1. Web Application Firewall (WAF) Rules
+### 1. Physical Key Separation (`ENCRYPTION_SECRET`)
+Set `ENCRYPTION_SECRET` in Cloudflare Pages Environment Variables as described above to physically separate the encryption key from D1 storage.
+
+### 2. Restrict CORS Origins (`ALLOWED_ORIGINS`)
+Set `ALLOWED_ORIGINS` to your production domain (e.g., `https://chat.yourcompany.com`) to prevent unauthorized cross-origin API requests from third-party websites.
+
+### 3. Web Application Firewall (WAF) Rules
 Configure custom WAF rules to protect your application from malicious bots and unauthorized access:
 * **Geoblocking**: If your team is located in a specific country, restrict access to that country only.
   - *Rule Expression*: `(ip.geoip.country ne "JP")` -> Action: *Block* (Replace `JP` with your country code).
-* **IP Whitelisting**: If you have a static office IP, you can lock down the entire `/api/*` endpoints to your IP.
+* **IP Whitelisting**: If you have a static office IP, you can lock down access to your IP only.
 
-### 2. Cloudflare Zero Trust (Access)
+### 4. Cloudflare Zero Trust (Access)
 Add an extra layer of protection by placing Cloudflare Access in front of your deployment:
 * Go to Cloudflare Dashboard > **Zero Trust** > **Access** > **Applications**.
 * Create a self-hosted application for your cohive domain.
@@ -108,10 +144,10 @@ Add an extra layer of protection by placing Cloudflare Access in front of your d
 
 | Variable | Required | Description |
 | :--- | :--- | :--- |
+| `ENCRYPTION_SECRET` | **Recommended for Prod** | 32-byte secret used to encrypt sensitive configuration (e.g., SMTP passwords) using AES-GCM. Setting this physically separates the key from D1 database storage. |
 | `ALLOWED_ORIGINS` | Optional | Comma-separated list of allowed CORS origins (e.g., `https://cohive.dev,https://app.cohive.dev`). |
 | `JWT_SECRET` | Optional | Custom secret key for signing JWT tokens. Auto-generated and stored in D1 database on setup if omitted. |
-| `ENCRYPTION_SECRET` | Optional | 32-byte secret used to encrypt sensitive configuration (e.g., SMTP passwords) in D1. Falls back to JWT_SECRET if omitted. |
-| `R2_ACCESS_KEY_ID` | Optional | Cloudflare R2 Access Key ID (required for generating S3 presigned URLs). |
+| `R2_ACCESS_KEY_ID` | Optional | Cloudflare R2 Access Key ID (required for generating S3 presigned URLs & direct uploads). |
 | `R2_SECRET_ACCESS_KEY` | Optional | Cloudflare R2 Secret Access Key. |
 | `R2_ACCOUNT_ID` | Optional | Cloudflare Account ID for R2 endpoints. |
 
